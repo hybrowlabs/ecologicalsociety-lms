@@ -12,6 +12,7 @@
   "column_break_3",
   "course",
   "course_title",
+  "instructor",
   "scorm_section",
   "is_scorm_package",
   "scorm_package",
@@ -23,6 +24,12 @@
   "lessons"
  ],
  "fields": [
+  {
+   "fieldname": "instructor",
+   "fieldtype": "Link",
+   "label": "Instructor",
+   "options": "User"
+  },
   {
    "fieldname": "course",
    "fieldtype": "Link",

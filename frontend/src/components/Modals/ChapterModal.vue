@@ -22,6 +22,18 @@
 					:required="true"
 					autocomplete="off"
 				/>
+				<div>
+					<label class="block mb-1.5 text-xs text-ink-gray-5">
+						{{ __('Chapter Instructor') }}
+					</label>
+					<Autocomplete
+						:modelValue="chapter.instructor"
+						:options="instructorOptions"
+						:placeholder="__('Search users...')"
+						variant="outline"
+						@update:modelValue="onInstructorSelect"
+					/>
+				</div>
 				<Switch
 					size="sm"
 					:label="__('SCORM Package')"
@@ -75,6 +87,7 @@
 </template>
 <script setup lang="ts">
 import {
+	Autocomplete,
 	Button,
 	createResource,
 	Dialog,
@@ -83,7 +96,7 @@ import {
 	toast,
 } from 'frappe-ui'
 import Switch from '@/components/Controls/Switch.vue'
-import { reactive, watch, inject } from 'vue'
+import { reactive, watch, inject, computed } from 'vue'
 import { getFileSize } from '@/utils/'
 import { FileText, X } from 'lucide-vue-next'
 import { useOnboarding, useTelemetry } from 'frappe-ui/frappe'
@@ -95,6 +108,7 @@ interface ChapterForm {
 	title: string
 	is_scorm_package: 0 | 1
 	scorm_package: ScormPackage
+	instructor: string
 }
 
 const show = defineModel<boolean>()
@@ -112,7 +126,33 @@ const chapter = reactive<ChapterForm>({
 	title: '',
 	is_scorm_package: 0,
 	scorm_package: null,
+	instructor: '',
 })
+
+interface InstructorOption {
+	value: string
+	label: string
+	description?: string
+}
+
+const instructorSearch = createResource({
+	url: 'lms.lms.api.get_instructor_options',
+	auto: true,
+}) as Resource<InstructorOption[] | null>
+
+const instructorOptions = computed<InstructorOption[]>(() => {
+	const list = (instructorSearch.data || []) as InstructorOption[]
+	// If editing a chapter with an existing instructor not in the list yet, prepend it
+	if (chapter.instructor && !list.some((o) => o.value === chapter.instructor)) {
+		return [{ value: chapter.instructor, label: chapter.instructor }, ...list]
+	}
+	return list
+})
+
+// Autocomplete emits the full option object on select — extract just the string value
+function onInstructorSelect(option: InstructorOption | null) {
+	chapter.instructor = option?.value || ''
+}
 
 const chapterResource = createResource({
 	url: 'lms.lms.api.upsert_chapter',
@@ -123,6 +163,7 @@ const chapterResource = createResource({
 			is_scorm_package: chapter.is_scorm_package,
 			scorm_package: chapter.scorm_package,
 			name: props.chapterDetail?.name,
+			instructor: chapter.instructor || null,
 		}
 	},
 })
@@ -168,6 +209,7 @@ const cleanChapter = () => {
 	chapter.title = ''
 	chapter.is_scorm_package = 0
 	chapter.scorm_package = null
+	chapter.instructor = ''
 }
 
 const editChapter = (close: () => void) => {
@@ -197,6 +239,7 @@ watch(
 		chapter.title = newChapter?.title ?? ''
 		chapter.is_scorm_package = (newChapter?.is_scorm_package ?? 0) as 0 | 1
 		chapter.scorm_package = (newChapter?.scorm_package ?? null) as ScormPackage
+		chapter.instructor = newChapter?.instructor ?? ''
 	}
 )
 

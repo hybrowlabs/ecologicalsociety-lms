@@ -57,6 +57,7 @@
 							:inlineSelect="inlineSelect"
 							:editorLinks="editorLinks"
 							:selectedLessonNumber="selectedLessonNumber"
+							:isEnrolled="isEnrolled"
 							@select-lesson="(payload) => emit('select-lesson', payload)"
 							@edit-chapter="openChapterModal"
 							@delete-chapter="trashChapter"
@@ -224,6 +225,7 @@ const props = withDefaults(
 		editorLinks?: boolean
 		selectedLessonNumber?: string
 		hideHeader?: boolean
+		isEnrolled?: boolean
 	}>(),
 	{
 		showOutline: false,
@@ -235,6 +237,7 @@ const props = withDefaults(
 		selectedLessonNumber: '',
 		completedLesson: null,
 		hideHeader: false,
+		isEnrolled: true,
 	}
 )
 

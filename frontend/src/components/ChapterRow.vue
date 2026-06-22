@@ -21,6 +21,12 @@
 				>
 					{{ chapter.title }}
 				</div>
+				<div
+					v-if="chapter.instructor_name"
+					class="text-xs text-ink-gray-5 mt-0.5 truncate"
+				>
+					{{ chapter.instructor_name }}
+				</div>
 			</div>
 			<div class="flex ms-auto gap-x-4 shrink-0">
 				<Tooltip :text="__('Edit Chapter')" placement="bottom">
@@ -58,17 +64,17 @@
 						:class="isActiveLesson(lesson.number) ? 'bg-surface-gray-3' : ''"
 					>
 						<component
-							:is="inlineSelect || lesson.is_locked ? 'div' : 'router-link'"
+							:is="inlineSelect || lesson.is_locked || isLessonLocked ? 'div' : 'router-link'"
 							:to="
-								inlineSelect || lesson.is_locked
+								inlineSelect || lesson.is_locked || isLessonLocked
 									? undefined
 									: lessonRoute(lesson)
 							"
 							:class="[
 								inlineSelect ? 'cursor-pointer' : '',
-								lesson.is_locked ? 'cursor-not-allowed opacity-60' : '',
+								lesson.is_locked || isLessonLocked ? 'cursor-not-allowed opacity-60' : '',
 							]"
-							@click="!lesson.is_locked && onLessonClick(lesson)"
+							@click="!lesson.is_locked && !isLessonLocked && onLessonClick(lesson)"
 						>
 							<div class="flex items-center text-sm leading-5 group">
 								<MonitorPlay
@@ -110,7 +116,7 @@
 									/>
 								</div>
 								<LockKeyhole
-									v-if="lesson.is_locked"
+									v-if="lesson.is_locked || isLessonLocked"
 									class="h-4 w-4 text-ink-gray-5 ms-auto"
 								/>
 								<Check
@@ -167,14 +173,19 @@ const props = withDefaults(
 		inlineSelect?: boolean
 		editorLinks?: boolean
 		selectedLessonNumber?: string
+		isEnrolled?: boolean
 	}>(),
 	{
 		allowEdit: false,
 		inlineSelect: false,
 		editorLinks: false,
 		selectedLessonNumber: '',
+		isEnrolled: true,
 	}
 )
+
+// Lock all lessons for unenrolled non-editor users
+const isLessonLocked = computed<boolean>(() => !props.isEnrolled && !props.allowEdit)
 
 const emit = defineEmits<{
 	'select-lesson': [{ chapterNumber: string; lessonNumber: string }]

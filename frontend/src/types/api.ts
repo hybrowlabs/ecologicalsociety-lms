@@ -83,6 +83,8 @@ export interface OutlineChapter {
 	is_scorm_package?: 0 | 1
 	scorm_package?: { file_name: string; file_size: number } | null
 	lessons?: OutlineLesson[]
+	instructor?: string | null
+	instructor_name?: string | null
 }
 
 export interface CertificationInfo {
@@ -99,6 +101,7 @@ export interface ChapterDetailInput {
 	title?: string
 	is_scorm_package?: 0 | 1
 	scorm_package?: { file_name: string; file_size: number } | null
+	instructor?: string | null
 }
 
 export interface CourseFormMeta {

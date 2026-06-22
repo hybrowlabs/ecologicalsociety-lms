@@ -1021,10 +1021,13 @@ def get_course_outline(course: str, progress: bool = False) -> list:
 def get_outline_chapter(course: str) -> list:
 	ChapterReference = frappe.qb.DocType("Chapter Reference")
 	CourseChapter = frappe.qb.DocType("Course Chapter")
+	User = frappe.qb.DocType("User")
 	return (
 		frappe.qb.from_(ChapterReference)
 		.join(CourseChapter)
 		.on(CourseChapter.name == ChapterReference.chapter)
+		.left_join(User)
+		.on(User.name == CourseChapter.instructor)
 		.select(
 			ChapterReference.idx.as_("idx"),
 			CourseChapter.name.as_("name"),
@@ -1032,6 +1035,8 @@ def get_outline_chapter(course: str) -> list:
 			CourseChapter.is_scorm_package.as_("is_scorm_package"),
 			CourseChapter.launch_file.as_("launch_file"),
 			CourseChapter.scorm_package.as_("scorm_package"),
+			CourseChapter.instructor.as_("instructor"),
+			User.full_name.as_("instructor_name"),
 		)
 		.where(ChapterReference.parent == course)
 		.orderby(ChapterReference.idx)
@@ -1127,6 +1132,8 @@ def build_outline(
 			scorm_package=c.scorm_package,
 			idx=c.idx,
 			lessons=lessons_by_chapter.get(c.name, []),
+			instructor=c.instructor,
+			instructor_name=c.instructor_name,
 		)
 		if c.is_scorm_package and c.scorm_package and c.scorm_package in files_by_name:
 			chapter.scorm_package = files_by_name[c.scorm_package]

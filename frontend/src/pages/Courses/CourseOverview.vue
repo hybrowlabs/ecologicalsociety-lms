@@ -100,6 +100,7 @@
 							:courseName="course.data.name"
 							:getProgress="course.data.membership ? true : false"
 							:editorLinks="isCourseAdmin"
+							:isEnrolled="Boolean(course.data.membership) || isCourseAdmin"
 						/>
 					</div>
 				</section>
@@ -124,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed, inject, watch } from 'vue'
 import { createResource, Badge } from 'frappe-ui'
 import { Star, UsersRound } from 'lucide-vue-next'
 import { formatAmount, formatRating } from '@/utils/'
@@ -161,8 +162,17 @@ const outline = createResource({
 	makeParams() {
 		return { course: props.course.data?.name, progress: false }
 	},
-	auto: true,
 }) as Resource<OutlineChapter[]>
+
+watch(
+	() => props.course.data?.name,
+	(name) => {
+		if (name) {
+			outline.reload()
+		}
+	},
+	{ immediate: true }
+)
 
 const outlineStats = computed(() => {
 	const chapters = outline.data || []

@@ -244,7 +244,7 @@
 							@updateNotes="updateNotes"
 						/>
 						<Discussions
-							v-else-if="allowDiscussions"
+							v-if="currentTab === 'Community' && allowDiscussions"
 							:title="'Questions'"
 							:doctype="'Course Lesson'"
 							:docname="lesson.data.name"
@@ -1015,27 +1015,34 @@ const updateNotes = () => {
 	notes.reload()
 }
 
-watch(allowDiscussions, () => {
-	if (!isAdmin.value) {
-		if (!tabs.value.find((tab) => tab.value === 'Notes')) {
-			tabs.value.push({
+watch(
+	allowDiscussions,
+	() => {
+		const newTabs = []
+		if (allowDiscussions.value) {
+			newTabs.push({
+				label: __('Questions'),
+				value: 'Community',
+			})
+		}
+		if (!isAdmin.value) {
+			newTabs.push({
 				label: __('Notes'),
 				value: 'Notes',
 			})
 		}
-		currentTab.value = 'Notes'
-	} else {
-		currentTab.value = allowDiscussions.value ? 'Community' : null
-	}
-	if (allowDiscussions.value) {
-		if (!tabs.value.find((tab) => tab.value === 'Community')) {
-			tabs.value.push({
-				label: __('Community'),
-				value: 'Community',
-			})
+		tabs.value = newTabs
+
+		if (allowDiscussions.value) {
+			currentTab.value = 'Community'
+		} else if (!isAdmin.value) {
+			currentTab.value = 'Notes'
+		} else {
+			currentTab.value = null
 		}
-	}
-})
+	},
+	{ immediate: true }
+)
 
 const redirectToLogin = () => {
 	window.location.href = `/login?redirect-to=${getLmsRoute(

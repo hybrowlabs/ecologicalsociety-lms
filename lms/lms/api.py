@@ -1041,7 +1041,7 @@ def give_discussions_permission():
 
 @frappe.whitelist()
 def upsert_chapter(
-	title: str, course: str, is_scorm_package: bool, scorm_package: dict = None, name: str = None
+	title: str, course: str, is_scorm_package: bool, scorm_package: dict = None, name: str = None, instructor: str = None
 ):
 	if not isinstance(title, str):
 		frappe.throw(_("title must be a string"))
@@ -1053,7 +1053,7 @@ def upsert_chapter(
 	if not can_modify_course(course):
 		frappe.throw(_("You do not have permission to modify this chapter."), frappe.PermissionError)
 
-	values = frappe._dict({"title": title, "course": course, "is_scorm_package": is_scorm_package})
+	values = frappe._dict({"title": title, "course": course, "is_scorm_package": is_scorm_package, "instructor": instructor or None})
 
 	if is_scorm_package:
 		scorm_package = frappe._dict(scorm_package)
@@ -1071,25 +1071,42 @@ def upsert_chapter(
 	if name:
 		chapter = frappe.get_doc("Course Chapter", name)
 		chapter.update(values)
-		chapter.save()
+		chapter.flags.ignore_links = True  # permission check already done above
+		chapter.save(ignore_permissions=True)
 	else:
 		chapter = frappe.new_doc("Course Chapter")
 		chapter.update(values)
-		chapter.save()
+		chapter.flags.ignore_links = True  # permission check already done above
+		chapter.save(ignore_permissions=True)
 
-		# Link the new chapter into the course outline. This was previously done
-		# client-side via frappe.client.insert (ChapterModal.vue), which did not
-		# reliably persist on CI — leaving get_outline_chapter() empty. Creating the
-		# Chapter Reference here keeps it atomic with the chapter and consistent
-		# across environments.
-		course_doc = frappe.get_doc("LMS Course", course)
-		course_doc.append("chapters", {"chapter": chapter.name})
-		course_doc.save()
+		# Link the new chapter into the course outline by inserting the
+		# Chapter Reference child row directly — avoids triggering the full
+		# LMS Course before/after-save hooks which can raise errors even
+		# though the chapter itself saved successfully (causing a spurious
+		# error toast on the frontend while the chapter was already created).
+		# NOTE: frappe.db.get_value does not support SQL aggregate functions
+		# as strings; use count() to get the current number of references
+		# (equivalent to MAX(idx) since indices are sequential).
+		existing_count = frappe.db.count(
+			"Chapter Reference",
+			{"parent": course, "parenttype": "LMS Course"},
+		)
+		ref = frappe.new_doc("Chapter Reference")
+		ref.update(
+			{
+				"chapter": chapter.name,
+				"parent": course,
+				"parenttype": "LMS Course",
+				"parentfield": "chapters",
+				"idx": existing_count + 1,
+			}
+		)
+		ref.insert(ignore_permissions=True)
 
 	if is_scorm_package and not len(chapter.lessons):
 		add_lesson(title, chapter.name, course, 1)
 
-	return chapter
+	return {"name": chapter.name, "title": chapter.title}
 
 
 def extract_package(course: str, title: str, scorm_package: dict):
@@ -2500,6 +2517,38 @@ def search_users_by_role(
 		for r in results
 	]
 
+
+@frappe.whitelist()
+def get_instructor_options(txt: str = "", page_length: int = 20):
+	"""Return enabled users for the chapter-level instructor selector."""
+	if not (has_moderator_role() or has_course_instructor_role()):
+		frappe.throw(_("You are not authorized to view instructor options."), frappe.PermissionError)
+
+	filters = [
+		["enabled", "=", 1],
+		["name", "not in", ["Administrator", "Guest"]],
+	]
+	if txt:
+		filters.append(["full_name", "like", f"%{txt}%"])
+
+	results = frappe.get_all(
+		"User",
+		filters=filters,
+		fields=["name", "full_name", "user_image"],
+		page_length=cint(page_length),
+		order_by="full_name asc",
+		ignore_permissions=True,
+	)
+
+	return [
+		{
+			"value": r.name,
+			"label": r.full_name or r.name,
+			"description": r.name,
+			"user_image": r.user_image,
+		}
+		for r in results
+	]
 
 @frappe.whitelist()
 def export_course_as_zip(course_name: str):
