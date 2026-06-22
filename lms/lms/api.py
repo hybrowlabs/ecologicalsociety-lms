@@ -1053,6 +1053,7 @@ def upsert_chapter(
 	if not can_modify_course(course):
 		frappe.throw(_("You do not have permission to modify this chapter."), frappe.PermissionError)
 
+	is_scorm_package = cint(is_scorm_package)
 	values = frappe._dict({"title": title, "course": course, "is_scorm_package": is_scorm_package, "instructor": instructor or None})
 
 	if is_scorm_package:

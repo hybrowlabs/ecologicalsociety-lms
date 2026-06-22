@@ -11,11 +11,17 @@ import { initSocket } from './socket'
 import { FrappeUI, setConfig, frappeRequest, pageMetaPlugin } from 'frappe-ui'
 import { telemetryPlugin } from 'frappe-ui/frappe'
 
+import { socketio_port } from '../../../../sites/common_site_config.json'
+
 let pinia = createPinia()
 let app = createApp(App)
 setConfig('resourceFetcher', frappeRequest)
 
-app.use(FrappeUI)
+app.use(FrappeUI, {
+	socketio: {
+		port: socketio_port,
+	},
+})
 app.use(pinia)
 app.use(router)
 app.use(translationPlugin)

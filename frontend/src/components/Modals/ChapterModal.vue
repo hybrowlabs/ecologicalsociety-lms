@@ -179,8 +179,12 @@ const addChapter = async (close: () => void) => {
 				return validateChapter()
 			},
 			onSuccess: () => {
-				if (user.data?.is_system_manager)
-					updateOnboardingStep('create_first_chapter')
+				try {
+					if (user.data?.is_system_manager)
+						updateOnboardingStep('create_first_chapter')
+				} catch (e) {
+					console.warn('Failed to update onboarding step:', e)
+				}
 
 				capture('chapter_created')
 				cleanChapter()
