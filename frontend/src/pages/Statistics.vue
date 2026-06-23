@@ -142,10 +142,23 @@ import {
 	Tooltip,
 	usePageMeta,
 } from 'frappe-ui'
-import { computed } from 'vue'
+import { computed, inject, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { sessionStore } from '../stores/session'
 
 const { brand } = sessionStore()
+const router = useRouter()
+const user = inject('$user')
+
+onMounted(() => {
+	if (
+		!user.data?.is_instructor &&
+		!user.data?.is_moderator &&
+		!user.data?.is_evaluator
+	) {
+		router.push({ name: 'Courses' })
+	}
+})
 
 const breadcrumbs = computed(() => {
 	return [
