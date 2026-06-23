@@ -146,7 +146,8 @@ import {
 	createResource,
 	toast,
 } from 'frappe-ui'
-import { useOnboarding, useTelemetry } from 'frappe-ui/frappe'
+import { useTelemetry } from 'frappe-ui/frappe'
+import { useOnboarding } from '@/utils/onboarding'
 import { computed, inject, onMounted, onBeforeUnmount, ref, useId } from 'vue'
 import { useRouter } from 'vue-router'
 import { sanitizeHTML, createLMSCategory, cleanError } from '@/utils'

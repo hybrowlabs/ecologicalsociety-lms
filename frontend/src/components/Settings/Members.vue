@@ -148,7 +148,8 @@ import {
 	Search,
 	Shield,
 } from 'lucide-vue-next'
-import { useOnboarding, useTelemetry } from 'frappe-ui/frappe'
+import { useTelemetry } from 'frappe-ui/frappe'
+import { useOnboarding } from '@/utils/onboarding'
 import type { User } from '@/components/Settings/types'
 import NewMemberModal from '@/components/Modals/NewMemberModal.vue'
 import SettingsLayout from '@/components/Layouts/SettingsLayout.vue'

@@ -47,7 +47,7 @@
 <script setup>
 import { call, Dialog, toast } from 'frappe-ui'
 import { ref, inject } from 'vue'
-import { useOnboarding } from 'frappe-ui/frappe'
+import { useOnboarding } from '@/utils/onboarding'
 import { openSettings } from '@/utils'
 import Link from '@/components/Controls/Link.vue'
 

@@ -47,7 +47,8 @@ import { reactive, onMounted, inject, ref, onBeforeUnmount } from 'vue'
 import EditorJS from '@editorjs/editorjs'
 import { ChevronRight } from 'lucide-vue-next'
 import { getEditorTools, enablePlyr, sanitizeEditorJs } from '@/utils'
-import { useOnboarding, useTelemetry } from 'frappe-ui/frappe'
+import { useTelemetry } from 'frappe-ui/frappe'
+import { useOnboarding } from '@/utils/onboarding'
 
 const editor = ref(null)
 const instructorEditor = ref(null)

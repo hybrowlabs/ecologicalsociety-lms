@@ -124,7 +124,8 @@ import {
 	createResource,
 	toast,
 } from 'frappe-ui'
-import { useOnboarding, useTelemetry } from 'frappe-ui/frappe'
+import { useTelemetry } from 'frappe-ui/frappe'
+import { useOnboarding } from '@/utils/onboarding'
 import { Users } from 'lucide-vue-next'
 import {
 	computed,

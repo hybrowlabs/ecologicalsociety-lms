@@ -99,7 +99,8 @@ import Switch from '@/components/Controls/Switch.vue'
 import { reactive, watch, inject, computed } from 'vue'
 import { getFileSize } from '@/utils/'
 import { FileText, X } from 'lucide-vue-next'
-import { useOnboarding, useTelemetry } from 'frappe-ui/frappe'
+import { useTelemetry } from 'frappe-ui/frappe'
+import { useOnboarding } from '@/utils/onboarding'
 import type { ChapterDetailInput, Resource, SessionUser } from '@/types/api'
 
 type ScormPackage = { file_name: string; file_size: number } | null
