@@ -10,7 +10,8 @@
     "copy-html-entry": "cp ../lms/public/frontend/index.html ../lms/www/_lms.html",
     "copy-colors-json": "cp node_modules/frappe-ui/tailwind/colors.json src/utils/frappe-ui-colors.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@codemirror/lang-html": "6.4.9",
@@ -55,6 +56,7 @@
     "@vue/test-utils": "^2.4.10",
     "autoprefixer": "10.4.2",
     "jsdom": "^29.1.1",
+    "patch-package": "^8.0.1",
     "postcss": "8.4.5",
     "tailwindcss": "^3.4.15",
     "unplugin-auto-import": "^20.3.0",

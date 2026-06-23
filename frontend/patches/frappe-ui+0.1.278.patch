@@ -1,0 +1,39 @@
+diff --git a/node_modules/frappe-ui/frappe/Onboarding/onboarding.js b/node_modules/frappe-ui/frappe/Onboarding/onboarding.js
+index c9a329e..da2c3d6 100644
+--- a/node_modules/frappe-ui/frappe/Onboarding/onboarding.js
++++ b/node_modules/frappe-ui/frappe/Onboarding/onboarding.js
+@@ -99,6 +99,8 @@ export function useOnboarding(appName) {
+         onboardingStatus.value[user] = {}
+       }
+ 
++      if (!onboardings[appName]) return
++
+       onboardingStatus.value[user][appName + '_onboarding_status'] =
+         onboardings[appName].map((s) => {
+           return { name: s.name, completed: value }
+@@ -109,9 +111,11 @@ export function useOnboarding(appName) {
+       })
+     }
+ 
+-    onboardings[appName].forEach((step) => {
+-      step.completed = value
+-    })
++    if (onboardings[appName]) {
++      onboardings[appName].forEach((step) => {
++        step.completed = value
++      })
++    }
+ 
+     updateUserOnboardingStatus(onboardingSteps.value)
+ 
+@@ -131,7 +135,9 @@ export function useOnboarding(appName) {
+     if (onboardingSteps.value.length) {
+       let _steps = onboardingSteps.value
+       _steps.forEach((step, index) => {
+-        onboardings[appName][index].completed = step.completed
++        if (onboardings[appName] && onboardings[appName][index]) {
++          onboardings[appName][index].completed = step.completed
++        }
+       })
+       isOnboardingStepsCompleted.value = _steps.every((step) => step.completed)
+     } else {
