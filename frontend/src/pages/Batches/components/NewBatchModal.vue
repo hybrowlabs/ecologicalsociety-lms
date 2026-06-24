@@ -30,20 +30,7 @@
 						:required="true"
 						variant="outline"
 					/>
-					<FormControl
-						v-model="batch.start_time"
-						:label="__('Start Time')"
-						type="time"
-						:required="true"
-						variant="outline"
-					/>
-					<FormControl
-						v-model="batch.end_time"
-						:label="__('End Time')"
-						type="time"
-						:required="true"
-						variant="outline"
-					/>
+
 					<div class="space-y-1.5">
 						<FormLabel :label="__('Timezone')" :required="true" />
 						<Combobox

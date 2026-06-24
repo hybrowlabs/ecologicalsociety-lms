@@ -111,19 +111,20 @@ class LMSBatch(Document):
 						)
 					)
 
-				if get_time(schedule.start_time) < get_time(self.start_time) or get_time(
-					schedule.start_time
-				) > get_time(self.end_time):
-					frappe.throw(
-						_("Row #{0} Start time cannot be outside the batch duration.").format(schedule.idx)
-					)
+				if self.start_time and self.end_time:
+					if get_time(schedule.start_time) < get_time(self.start_time) or get_time(
+						schedule.start_time
+					) > get_time(self.end_time):
+						frappe.throw(
+							_("Row #{0} Start time cannot be outside the batch duration.").format(schedule.idx)
+						)
 
-				if get_time(schedule.end_time) < get_time(self.start_time) or get_time(
-					schedule.end_time
-				) > get_time(self.end_time):
-					frappe.throw(
-						_("Row #{0} End time cannot be outside the batch duration.").format(schedule.idx)
-					)
+					if get_time(schedule.end_time) < get_time(self.start_time) or get_time(
+						schedule.end_time
+					) > get_time(self.end_time):
+						frappe.throw(
+							_("Row #{0} End time cannot be outside the batch duration.").format(schedule.idx)
+						)
 
 			if schedule.date < self.start_date or schedule.date > self.end_date:
 				frappe.throw(_("Row #{0} Date cannot be outside the batch duration.").format(schedule.idx))

@@ -140,6 +140,7 @@ const { $dialog } = getCurrentInstance()!.appContext.config
 
 const emit = defineEmits<{
 	'select-lesson': [{ chapterNumber: string; lessonNumber: string }]
+	'lesson-deleted': [string]
 }>()
 
 interface LessonModalContext {
@@ -318,6 +319,17 @@ const deleteChapter = createResource({
 	},
 })
 
+const findLessonNumberByName = (lessonName: string) => {
+	if (!outline.data) return null
+	for (const chapter of outline.data) {
+		const lesson = chapter.lessons?.find((l) => l.name === lessonName)
+		if (lesson) {
+			return lesson.number
+		}
+	}
+	return null
+}
+
 function trashLesson(lessonName: string, chapterName: string) {
 	$dialog({
 		title: __('Delete this lesson?'),
@@ -330,7 +342,19 @@ function trashLesson(lessonName: string, chapterName: string) {
 				theme: 'red',
 				variant: 'solid',
 				onClick(close) {
-					deleteLesson.submit({ lesson: lessonName, chapter: chapterName })
+					const lessonNumber = findLessonNumberByName(lessonName)
+					deleteLesson.submit(
+						{ lesson: lessonName, chapter: chapterName },
+						{
+							onSuccess() {
+								outline.reload()
+								toast.success(__('Lesson deleted successfully'))
+								if (lessonNumber) {
+									emit('lesson-deleted', lessonNumber)
+								}
+							},
+						}
+					)
 					close()
 				},
 			},

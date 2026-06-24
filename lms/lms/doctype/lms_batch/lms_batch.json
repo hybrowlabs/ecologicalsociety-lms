@@ -137,13 +137,13 @@
    "fieldtype": "Time",
    "in_list_view": 1,
    "label": "Start Time",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "end_time",
    "fieldtype": "Time",
    "label": "End Time",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "assessment_tab",

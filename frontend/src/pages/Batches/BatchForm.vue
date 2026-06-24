@@ -38,20 +38,7 @@
 							variant="outline"
 						/>
 
-						<FormControl
-							v-model="batchDetail.doc.start_time"
-							:label="__('Session Start Time')"
-							type="time"
-							:required="false"
-							variant="outline"
-						/>
-						<FormControl
-							v-model="batchDetail.doc.end_time"
-							:label="__('Session End Time')"
-							type="time"
-							:required="false"
-							variant="outline"
-						/>
+
 						<div class="space-y-1.5">
 							<FormLabel :label="__('Timezone')" :required="true" />
 							<Combobox

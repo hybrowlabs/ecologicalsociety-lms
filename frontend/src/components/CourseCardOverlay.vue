@@ -36,17 +36,33 @@
 					</router-link>
 					<CertificationLinks :courseName="course.data.name" class="w-full" />
 				</div>
-				<router-link
-					v-else-if="course.data?.paid_course && !isAdmin"
-					:to="{
-						name: 'Billing',
-						params: {
-							type: 'course',
-							name: course.data.name,
-						},
-					}"
-				>
-					<Button variant="solid" size="md" class="w-full mb-8">
+				<template v-else-if="course.data?.paid_course && !isAdmin">
+					<router-link
+						v-if="settingsStore.settings.data?.payment_gateway"
+						:to="{
+							name: 'Billing',
+							params: {
+								type: 'course',
+								name: course.data.name,
+							},
+						}"
+					>
+						<Button variant="solid" size="md" class="w-full mb-8">
+							<template #prefix>
+								<CreditCard class="size-4 stroke-1.5" />
+							</template>
+							<span>
+								{{ __('Buy this course') }}
+							</span>
+						</Button>
+					</router-link>
+					<Button
+						v-else
+						disabled
+						variant="solid"
+						size="md"
+						class="w-full mb-8"
+					>
 						<template #prefix>
 							<CreditCard class="size-4 stroke-1.5" />
 						</template>
@@ -54,7 +70,7 @@
 							{{ __('Buy this course') }}
 						</span>
 					</Button>
-				</router-link>
+				</template>
 				<Badge
 					v-else-if="course.data?.disable_self_learning && !isAdmin"
 					theme="blue"
@@ -148,6 +164,7 @@ import { Badge, Button, call, createResource, toast } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import CertificationLinks from '@/components/CertificationLinks.vue'
 import { useTelemetry } from 'frappe-ui/frappe'
+import { useSettings } from '@/stores/settings'
 import type {
 	CourseDetails,
 	CourseInstructorInfo,
@@ -157,6 +174,7 @@ import type {
 
 const router = useRouter()
 const user = inject<SessionUser>('$user')!
+const settingsStore = useSettings()
 const readOnlyMode = (window as Window & { read_only_mode?: boolean })
 	.read_only_mode
 const { capture } = useTelemetry()

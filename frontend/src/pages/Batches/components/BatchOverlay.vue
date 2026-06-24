@@ -49,7 +49,10 @@
 				:endDate="batch.data.end_date"
 				class="mb-3"
 			/>
-			<div class="flex items-center mb-3 text-ink-gray-7">
+			<div
+				v-if="batch.data.start_time || batch.data.end_time"
+				class="flex items-center mb-3 text-ink-gray-7"
+			>
 				<Clock class="h-4 w-4 stroke-1.5 me-2" />
 				<span dir="ltr">
 					{{ formatTime(batch.data.start_time) }} -
@@ -64,21 +67,38 @@
 			</div>
 
 			<div v-if="!readOnlyMode && !canAccessBatch">
-				<router-link
-					:to="{
-						name: 'Billing',
-						params: {
-							type: 'batch',
-							name: batch.data.name,
-						},
-					}"
+				<template
 					v-if="
 						batch.data.paid_batch &&
 						batch.data.seats_left > 0 &&
 						batch.data.accept_enrollments
 					"
 				>
-					<Button class="w-full mt-4" variant="solid">
+					<router-link
+						v-if="settingsStore.settings.data?.payment_gateway"
+						:to="{
+							name: 'Billing',
+							params: {
+								type: 'batch',
+								name: batch.data.name,
+							},
+						}"
+					>
+						<Button class="w-full mt-4" variant="solid">
+							<template #prefix>
+								<CreditCard class="size-4 stroke-1.5" />
+							</template>
+							<span>
+								{{ __('Register Now') }}
+							</span>
+						</Button>
+					</router-link>
+					<Button
+						v-else
+						disabled
+						class="w-full mt-4"
+						variant="solid"
+					>
 						<template #prefix>
 							<CreditCard class="size-4 stroke-1.5" />
 						</template>
@@ -86,7 +106,7 @@
 							{{ __('Register Now') }}
 						</span>
 					</Button>
-				</router-link>
+				</template>
 				<Button
 					variant="solid"
 					class="w-full mt-2"
@@ -109,6 +129,7 @@
 <script setup>
 import { inject, computed } from 'vue'
 import { Badge, Button, createResource, toast } from 'frappe-ui'
+import { useSettings } from '@/stores/settings'
 import {
 	BookOpen,
 	Clock,
@@ -125,6 +146,7 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const user = inject('$user')
+const settingsStore = useSettings()
 const readOnlyMode = window.read_only_mode
 
 const props = defineProps({

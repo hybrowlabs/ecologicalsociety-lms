@@ -63,6 +63,7 @@
 				:inlineSelect="true"
 				:selectedLessonNumber="selected?.number"
 				@select-lesson="onSelectLesson"
+				@lesson-deleted="handleLessonDeleted"
 			/>
 		</aside>
 	</div>
@@ -164,6 +165,17 @@ function onSelectLesson({ chapterNumber, lessonNumber }) {
 		storeLesson(props.course.data.name, number)
 	}
 	syncSelectedToUrl(number)
+}
+
+function handleLessonDeleted(lessonNumber) {
+	if (selected.value?.number === lessonNumber) {
+		selected.value = null
+		// Clear query param
+		router.replace({
+			query: { ...route.query, editLesson: undefined, lessonMode: undefined },
+			hash: route.hash || '#course editor',
+		})
+	}
 }
 
 const outline = createResource({
