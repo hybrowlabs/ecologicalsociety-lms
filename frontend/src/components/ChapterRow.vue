@@ -11,13 +11,13 @@
 	</div>
 	<Disclosure v-else v-slot="{ open }" :key="chapter.name" :defaultOpen="defaultOpen">
 		<DisclosureButton class="flex items-center w-full p-2 group">
+			<ChevronRight
 				:class="{
 					'rotate-90': open,
 					'rtl:rotate-180': !open,
 					hidden: chapter.is_scorm_package,
-					open: index == 1,
 				}"
-				class="lucide-chevron-right size-4 text-ink-gray-9 stroke-1 transform duration-200"
+				class="size-4 text-ink-gray-9 stroke-1 transform duration-200"
 			/>
 			<div
 				class="ms-2 min-w-0 flex-1 text-start"
@@ -153,6 +153,7 @@ import Draggable from 'vuedraggable'
 import { Disclosure, DisclosureButton, DisclosurePanel } from '@headlessui/vue'
 import {
 	Check,
+	ChevronRight,
 	FilePenLine,
 	FileText,
 	HelpCircle,
