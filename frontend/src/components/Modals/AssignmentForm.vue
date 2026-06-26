@@ -46,6 +46,47 @@
 							editorClass="prose-sm max-w-none border-b border-x border-outline-gray-modals bg-surface-gray-2 rounded-b-md py-1 px-2 min-h-[10rem] max-h-[18rem] overflow-y-auto"
 						/>
 					</div>
+					<div>
+						<div class="text-sm font-medium text-ink-gray-9 mb-2">
+							{{ __('Reference Attachments') }}
+						</div>
+						<div class="space-y-2">
+							<div
+								v-for="(file, index) in referenceFiles"
+								:key="index"
+								class="flex items-center justify-between border rounded-md p-2"
+							>
+								<span class="text-sm truncate">{{ file.file_name }}</span>
+								<Button variant="ghost" @click="removeReferenceFile(index)">
+									{{ __('Remove') }}
+								</Button>
+							</div>
+							<div class="flex items-center gap-2">
+								<FormControl
+									v-model="newFileType"
+									type="select"
+									:options="referenceFileTypes"
+									:label="__('File Type')"
+									class="flex-1"
+								/>
+								<FileUploader
+									:fileTypes="referenceAcceptTypes"
+									:uploadArgs="{ private: false }"
+									@success="(file) => addReferenceFile(file)"
+								>
+									<template #default="{ uploading, openFileSelector }">
+										<Button
+											@click="openFileSelector"
+											:loading="uploading"
+											variant="outline"
+										>
+											{{ __('Upload File') }}
+										</Button>
+									</template>
+								</FileUploader>
+							</div>
+						</div>
+					</div>
 				</div>
 
 				<div class="flex justify-end gap-x-2 mt-5">
@@ -70,8 +111,8 @@
 	</Dialog>
 </template>
 <script setup lang="ts">
-import { Button, Dialog, FormControl, TextEditor, toast } from 'frappe-ui'
-import { computed, reactive, watch } from 'vue'
+import { Button, Dialog, FileUploader, FormControl, TextEditor, toast } from 'frappe-ui'
+import { computed, reactive, ref, watch } from 'vue'
 import { sanitizeHTML } from '@/utils'
 import Link from '@/components/Controls/Link.vue'
 
@@ -99,6 +140,38 @@ const assignment = reactive({
 	question: '',
 	course: '',
 })
+
+const referenceFiles = ref([])
+const newFileType = ref('PDF')
+
+const referenceFileTypes = [
+	{ label: 'PDF', value: 'PDF' },
+	{ label: 'Document', value: 'Document' },
+	{ label: 'Image', value: 'Image' },
+	{ label: 'Video', value: 'Video' },
+]
+
+const referenceAcceptTypes = computed(() => {
+	if (newFileType.value === 'PDF') return ['.pdf']
+	if (newFileType.value === 'Document') {
+		return ['.doc', '.docx', 'application/msword']
+	}
+	if (newFileType.value === 'Image') return ['image/*']
+	if (newFileType.value === 'Video') return ['video/*', '.mp4', '.webm']
+	return []
+})
+
+const addReferenceFile = (file) => {
+	referenceFiles.value.push({
+		file_type: newFileType.value,
+		file: file.file_url,
+		file_name: file.file_name || file.file_url.split('/').pop(),
+	})
+}
+
+const removeReferenceFile = (index) => {
+	referenceFiles.value.splice(index, 1)
+}
 
 const props = defineProps({
 	assignmentID: {
@@ -129,6 +202,7 @@ watch(show, (newVal) => {
 		assignment.title = ''
 		assignment.type = ''
 		assignment.question = ''
+		referenceFiles.value = []
 	}
 })
 
@@ -150,6 +224,7 @@ const createAssignment = () => {
 	assignments.value.insert.submit(
 		{
 			...assignment,
+			reference_files: referenceFiles.value,
 		},
 		{
 			onSuccess() {
@@ -165,6 +240,7 @@ const updateAssignment = () => {
 		{
 			...assignment,
 			name: props.assignmentID,
+			reference_files: referenceFiles.value,
 		},
 		{
 			onSuccess() {

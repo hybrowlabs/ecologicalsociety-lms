@@ -2052,6 +2052,7 @@ def get_created_courses():
 		.join(Course)
 		.on(CourseInstructor.parent == Course.name)
 		.select(Course.name)
+		.distinct()
 		.orderby(Course.published_on, order=frappe.qb.desc)
 		.limit(3)
 	)

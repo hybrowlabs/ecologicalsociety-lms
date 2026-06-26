@@ -109,6 +109,7 @@ import {
 	Badge,
 	Breadcrumbs,
 	Button,
+	call,
 	createResource,
 	Dropdown,
 	Tabs,
@@ -162,6 +163,8 @@ watch(tabIndex, () => {
 	}
 })
 
+const unreadAnnouncements = ref(0)
+
 const batch = createResource({
 	url: 'lms.lms.utils.get_batch_details',
 	cache: ['batch', props.batchName],
@@ -172,6 +175,12 @@ const batch = createResource({
 	onSuccess: (data) => {
 		if (!data) {
 			router.push({ name: 'Batches' })
+		} else if (isStudent.value) {
+			call('ecological_society.announcements.get_unread_announcement_count', {
+				batch: data.name,
+			}).then((result) => {
+				unreadAnnouncements.value = result?.count || 0
+			})
 		}
 	},
 })
@@ -199,8 +208,12 @@ const updateTabs = () => {
 
 const addToTabs = (label, component, icon) => {
 	if (!tabs.value.some((tab) => tab.label === label)) {
+		const tabLabel =
+			label === 'Announcements' && unreadAnnouncements.value
+				? `${label} (${unreadAnnouncements.value})`
+				: label
 		tabs.value.push({
-			label,
+			label: tabLabel,
 			component,
 			icon,
 		})

@@ -1,7 +1,16 @@
 <template>
-	<Disclosure v-slot="{ open }" :key="chapter.name" :defaultOpen="defaultOpen">
+	<div v-if="chaptersOnly" class="flex items-center w-full p-2 border-b last:border-b-0">
+		<div class="min-w-0 flex-1 text-start">
+			<div
+				class="truncate text-base font-medium leading-5 text-ink-gray-9"
+				:title="chapter.title"
+			>
+				{{ chapter.title }}
+			</div>
+		</div>
+	</div>
+	<Disclosure v-else v-slot="{ open }" :key="chapter.name" :defaultOpen="defaultOpen">
 		<DisclosureButton class="flex items-center w-full p-2 group">
-			<span
 				:class="{
 					'rotate-90': open,
 					'rtl:rotate-180': !open,
@@ -173,6 +182,7 @@ const props = withDefaults(
 		inlineSelect?: boolean
 		editorLinks?: boolean
 		selectedLessonNumber?: string
+		chaptersOnly?: boolean
 		isEnrolled?: boolean
 	}>(),
 	{
@@ -180,6 +190,7 @@ const props = withDefaults(
 		inlineSelect: false,
 		editorLinks: false,
 		selectedLessonNumber: '',
+		chaptersOnly: false,
 		isEnrolled: true,
 	}
 )

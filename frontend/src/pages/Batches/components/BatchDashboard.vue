@@ -74,7 +74,10 @@
 					/>
 				</div>
 				<div class="p-5">
-					<BatchFeedback :batch="batch.data?.name" />
+					<BatchFeedback
+						:batch="batch.data?.name"
+						:feedbackAvailable="batch.data?.feedback_available !== false"
+					/>
 				</div>
 			</div>
 		</div>

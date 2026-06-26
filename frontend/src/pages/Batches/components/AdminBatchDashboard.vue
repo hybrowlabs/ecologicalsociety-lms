@@ -165,7 +165,11 @@
 				/>
 
 				<div class="p-4 border rounded-lg mt-5">
-					<BatchFeedback v-if="batch.data" :batch="batch.data.name" />
+					<BatchFeedback
+						v-if="batch.data"
+						:batch="batch.data.name"
+						:feedbackAvailable="true"
+					/>
 				</div>
 			</div>
 		</div>

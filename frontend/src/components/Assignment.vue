@@ -23,6 +23,35 @@
 				v-html="assignment.data.question"
 				class="ProseMirror prose prose-table:table-fixed prose-td:p-2 prose-th:p-2 prose-td:border prose-th:border prose-td:border-outline-gray-2 prose-th:border-outline-gray-2 prose-td:relative prose-th:relative prose-th:bg-surface-gray-2 prose-sm max-w-none !whitespace-normal"
 			></div>
+			<div v-if="referenceFiles.length" class="mt-5 space-y-2">
+				<div class="font-semibold text-ink-gray-9">
+					{{ __('Reference Files') }}
+				</div>
+				<div
+					v-for="(file, index) in referenceFiles"
+					:key="index"
+					class="flex items-center gap-2"
+				>
+					<template v-if="file.file_type === 'Video'">
+						<video
+							v-if="isVideoUrl(file.file)"
+							:src="file.file"
+							controls
+							class="w-full max-h-64 rounded-md"
+						/>
+						<div v-else v-html="file.file" class="w-full"></div>
+					</template>
+					<a
+						v-else
+						:href="file.file"
+						target="_blank"
+						class="flex items-center gap-2 text-ink-gray-8 hover:text-ink-gray-9"
+					>
+						<FileText class="h-4 w-4 stroke-1.5" />
+						<span>{{ file.file_name || file.file.split('/').pop() }}</span>
+					</a>
+				</div>
+			</div>
 		</div>
 
 		<div class="flex flex-col overflow-y-auto">
@@ -257,18 +286,24 @@ onBeforeUnmount(() => {
 })
 
 const assignment = createResource({
-	url: 'frappe.client.get',
+	url: 'ecological_society.assignments.get_assignment_with_attachments',
 	params: {
-		doctype: 'LMS Assignment',
-		name: props.assignmentID,
+		assignment: props.assignmentID,
 	},
 	auto: true,
 	onSuccess(data) {
+		referenceFiles.value = data?.reference_files || []
 		if (props.submissionName != 'new') {
 			submissionResource.reload()
 		}
 	},
 })
+
+const referenceFiles = ref([])
+
+const isVideoUrl = (file) => {
+	return /\.(mp4|webm|ogg|mov)(\?|$)/i.test(file || '')
+}
 
 const submissionResource = createDocumentResource({
 	doctype: 'LMS Assignment Submission',

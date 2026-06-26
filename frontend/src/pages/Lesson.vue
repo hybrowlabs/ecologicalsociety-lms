@@ -28,12 +28,12 @@
 					</span>
 				</Button>
 
-				<Button v-if="lesson.data.next" @click="switchLesson('next')">
+				<Button v-if="lesson.data.next_unlocked || lesson.data.next" @click="switchLesson('next')">
 					<template #suffix>
 						<ChevronRight class="w-4 h-4 stroke-1" />
 					</template>
 					<span>
-						{{ __('Next') }}
+						{{ __('Next Lesson') }}
 					</span>
 				</Button>
 
@@ -154,14 +154,17 @@
 									</span>
 								</Button>
 
-								<Button v-if="lesson.data.next" @click="switchLesson('next')">
-									<template #suffix>
-										<ChevronRight class="w-4 h-4 stroke-1" />
-									</template>
-									<span>
-										{{ __('Next') }}
-									</span>
-								</Button>
+				<Button
+					v-if="lesson.data.next_unlocked || lesson.data.next"
+					@click="switchLesson('next')"
+				>
+					<template #suffix>
+						<ChevronRight class="w-4 h-4 stroke-1" />
+					</template>
+					<span>
+						{{ __('Next Lesson') }}
+					</span>
+				</Button>
 
 								<router-link
 									v-else
@@ -248,6 +251,8 @@
 							:title="'Questions'"
 							:doctype="'Course Lesson'"
 							:docname="lesson.data.name"
+							:lessonName="lesson.data.name"
+							:allowPost="Boolean(lesson.data.membership && !embedded)"
 							:key="lesson.data.name"
 							:emptyStateText="
 								__('Ask a question to get help from the community.')
@@ -595,10 +600,14 @@ const breadcrumbs = computed(() => {
 
 const switchLesson = (direction) => {
 	trackVideoWatchDuration()
-	let lessonIndex =
-		direction === 'prev'
-			? lesson.data.prev.split('.')
-			: lesson.data.next.split('.')
+	let lessonIndex
+	if (direction === 'prev') {
+		lessonIndex = lesson.data.prev.split('.')
+	} else {
+		const nextTarget = lesson.data.next_unlocked || lesson.data.next
+		if (!nextTarget) return
+		lessonIndex = nextTarget.split('.')
+	}
 
 	const [chapterNumber, lessonNumber] = lessonIndex
 	// In the embedded editor preview, navigate the parent's selection so the
@@ -900,6 +909,7 @@ const checkIfDiscussionsAllowed = () => {
 	// (membership / moderator / instructor still required; hidden in zen mode).
 	if (
 		!zenModeEnabled.value &&
+		!props.embedded &&
 		(lesson.data?.membership ||
 			user.data?.is_moderator ||
 			user.data?.is_instructor)

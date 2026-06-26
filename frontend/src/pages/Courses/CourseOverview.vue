@@ -101,6 +101,7 @@
 							:getProgress="course.data.membership ? true : false"
 							:editorLinks="isCourseAdmin"
 							:isEnrolled="Boolean(course.data.membership) || isCourseAdmin"
+							:chaptersOnly="!course.data.membership && !isCourseAdmin"
 						/>
 					</div>
 				</section>

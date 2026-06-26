@@ -40,7 +40,7 @@
 
 
 						<div class="space-y-1.5">
-							<FormLabel :label="__('Timezone')" :required="true" />
+							<FormLabel :label="__('Timezone')" :required="false" />
 							<Combobox
 								v-model="batchDetail.doc.timezone"
 								:options="timezoneOptions"

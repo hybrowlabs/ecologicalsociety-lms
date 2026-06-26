@@ -58,6 +58,7 @@
 							:editorLinks="editorLinks"
 							:selectedLessonNumber="selectedLessonNumber"
 							:isEnrolled="isEnrolled"
+							:chaptersOnly="chaptersOnly"
 							@select-lesson="(payload) => emit('select-lesson', payload)"
 							@edit-chapter="openChapterModal"
 							@delete-chapter="trashChapter"
@@ -227,6 +228,7 @@ const props = withDefaults(
 		selectedLessonNumber?: string
 		hideHeader?: boolean
 		isEnrolled?: boolean
+		chaptersOnly?: boolean
 	}>(),
 	{
 		showOutline: false,
@@ -239,6 +241,7 @@ const props = withDefaults(
 		completedLesson: null,
 		hideHeader: false,
 		isEnrolled: true,
+		chaptersOnly: false,
 	}
 )
 

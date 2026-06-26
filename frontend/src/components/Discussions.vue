@@ -1,7 +1,7 @@
 <template>
 	<div>
 		<Button
-			v-if="!singleThread && !readOnlyMode"
+			v-if="!singleThread && !readOnlyMode && allowPost"
 			class="float-end"
 			@click="openTopicModal()"
 		>
@@ -25,6 +25,12 @@
 				<div>
 					<div class="text-lg font-semibold mb-1 text-ink-gray-7">
 						{{ topic.title }}
+					</div>
+					<div
+						v-if="topic.assigned_instructor_name"
+						class="text-xs text-ink-gray-5 mb-1"
+					>
+						{{ __('Assigned to') }}: {{ topic.assigned_instructor_name }}
 					</div>
 					<div class="flex items-center text-ink-gray-5">
 						<span>
@@ -66,6 +72,7 @@
 		:title="__('New {0}').format(title)"
 		:doctype="props.doctype"
 		:docname="props.docname"
+		:lessonName="props.lessonName"
 		v-model:reloadTopics="topics"
 	/>
 </template>
@@ -114,6 +121,14 @@ const props = defineProps({
 	scrollToBottom: {
 		type: Boolean,
 		default: false,
+	},
+	allowPost: {
+		type: Boolean,
+		default: true,
+	},
+	lessonName: {
+		type: String,
+		default: '',
 	},
 })
 

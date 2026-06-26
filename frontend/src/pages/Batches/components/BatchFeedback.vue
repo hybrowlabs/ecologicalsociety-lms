@@ -1,5 +1,5 @@
 <template>
-	<div>
+	<div v-if="feedbackAvailable || isAdmin">
 		<div class="flex justify-between mb-5">
 			<div class="space-y-1">
 				<div class="text-lg text-ink-gray-9 font-semibold">
@@ -20,7 +20,7 @@
 				{{ __('View all feedback') }}
 			</Button>
 		</div>
-		<div v-if="user.data?.is_student">
+		<div v-if="user.data?.is_student && feedbackAvailable">
 			<div>
 				<div class="leading-5 mb-4 text-ink-gray-7">
 					<div v-if="readOnly">
@@ -59,7 +59,7 @@
 			</div>
 		</div>
 
-		<div v-else-if="feedbackList.data?.length">
+		<div v-else-if="isAdmin && feedbackList.data?.length">
 			<div class="space-y-4">
 				<Rating
 					v-for="key in ratingKeys"
@@ -69,7 +69,7 @@
 				/>
 			</div>
 		</div>
-		<div v-else class="text-ink-gray-7 leading-5">
+		<div v-else-if="isAdmin" class="text-ink-gray-7 leading-5">
 			{{ __('No feedback received yet.') }}
 		</div>
 	</div>
@@ -97,6 +97,10 @@ const props = defineProps({
 	batch: {
 		type: String,
 		required: true,
+	},
+	feedbackAvailable: {
+		type: Boolean,
+		default: true,
 	},
 })
 
@@ -180,6 +184,10 @@ const submitFeedback = () => {
 }
 
 const isAdmin = computed(() => {
-	return user.data?.is_moderator || user.data?.is_evaluator
+	return (
+		user.data?.is_moderator ||
+		user.data?.is_evaluator ||
+		user.data?.is_instructor
+	)
 })
 </script>

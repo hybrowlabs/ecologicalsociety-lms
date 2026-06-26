@@ -17,6 +17,14 @@
 				<div>
 					<FormControl v-model="topic.title" :label="__('Title')" type="text" />
 				</div>
+				<div v-if="props.doctype === 'Course Lesson' && instructorOptions.length">
+					<FormControl
+						v-model="topic.assigned_instructor"
+						type="select"
+						:label="__('Assign to Instructor')"
+						:options="instructorOptions"
+					/>
+				</div>
 				<div>
 					<div class="mb-1.5 text-sm text-ink-gray-5">
 						{{ __('Details') }}
@@ -35,7 +43,7 @@
 </template>
 <script setup>
 import { call, Dialog, FormControl, TextEditor, toast } from 'frappe-ui'
-import { reactive } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { singularize } from '@/utils'
 import { useTelemetry } from 'frappe-ui/frappe'
 
@@ -55,11 +63,34 @@ const props = defineProps({
 		type: String,
 		required: true,
 	},
+	lessonName: {
+		type: String,
+		default: '',
+	},
 })
 
 const topic = reactive({
 	title: '',
 	reply: '',
+	assigned_instructor: '',
+})
+
+const instructorOptions = ref([])
+
+onMounted(() => {
+	if (props.doctype === 'Course Lesson' && props.docname) {
+		call('ecological_society.discussions.get_lesson_instructors_for_questions', {
+			lesson: props.docname,
+		}).then((data) => {
+			instructorOptions.value = (data || []).map((ins) => ({
+				label: ins.full_name,
+				value: ins.name,
+			}))
+			if (instructorOptions.value.length) {
+				topic.assigned_instructor = instructorOptions.value[0].value
+			}
+		})
+	}
 })
 
 const submitTopic = (close) => {
@@ -71,14 +102,16 @@ const submitTopic = (close) => {
 		toast.error(__('Details cannot be empty.'))
 		return
 	}
-	call('frappe.client.insert', {
-		doc: {
-			doctype: 'Discussion Topic',
-			reference_doctype: props.doctype,
-			reference_docname: props.docname,
-			title: topic.title,
-		},
-	})
+	const doc = {
+		doctype: 'Discussion Topic',
+		reference_doctype: props.doctype,
+		reference_docname: props.docname,
+		title: topic.title,
+	}
+	if (topic.assigned_instructor) {
+		doc.assigned_instructor = topic.assigned_instructor
+	}
+	call('frappe.client.insert', { doc })
 		.then((data) => {
 			createReply(data.name, close)
 		})
@@ -99,6 +132,7 @@ const createReply = (topicName, close) => {
 		.then((data) => {
 			topic.title = ''
 			topic.reply = ''
+			topic.assigned_instructor = instructorOptions.value[0]?.value || ''
 			topics.value.reload()
 			capture('discussion_topic_created')
 			close()

@@ -11,20 +11,7 @@
 			</div>
 			<div v-if="!readOnlyMode">
 				<div v-if="course.data?.membership" class="space-y-2 mb-8">
-					<router-link
-						:to="{
-							name: 'Lesson',
-							params: {
-								courseName: course.data?.name,
-								chapterNumber: course?.data?.current_lesson
-									? course?.data?.current_lesson.split('-')[0]
-									: 1,
-								lessonNumber: course?.data?.current_lesson
-									? course?.data?.current_lesson.split('-')[1]
-									: 1,
-							},
-						}"
-					>
+					<router-link v-if="continueLessonRoute" :to="continueLessonRoute">
 						<Button variant="solid" size="md" class="w-full">
 							<template #prefix>
 								<BookText class="size-4 stroke-1.5" />
@@ -186,6 +173,19 @@ const props = withDefaults(
 	{}
 )
 
+const continueLessonRoute = computed(() => {
+	const courseName = props.course.data?.name
+	if (!courseName) return null
+	const lesson =
+		props.course.data?.current_lesson ||
+		props.course.data?.first_unlocked_lesson ||
+		'1-1'
+	const [chapterNumber, lessonNumber] = lesson.split('-')
+	return {
+		name: 'Lesson',
+		params: { courseName, chapterNumber, lessonNumber },
+	}
+})
 const video_link = computed<string | undefined>(() => {
 	const link = props.course.data?.video_link
 	return link ? 'https://www.youtube.com/embed/' + link : undefined
