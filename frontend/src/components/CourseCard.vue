@@ -67,14 +67,6 @@
 					</Tooltip>
 				</div>
 
-				<div v-if="course.rating">
-					<Tooltip :text="__('Average Rating')">
-						<span class="flex items-center">
-							<Star class="h-4 w-4 stroke-1.5 me-1" />
-							{{ formatRating(course.rating) }}
-						</span>
-					</Tooltip>
-				</div>
 
 				<Tooltip v-if="course.featured" :text="__('Featured')">
 					<Award class="size-4 stroke-2 text-ink-amber-3" />
@@ -99,7 +91,7 @@
 			/>
 
 			<div v-if="user && course.membership" class="text-sm mt-2 mb-4">
-				{{ Math.ceil(course.membership.progress) }}% {{ __('completed') }}
+				{{ Math.ceil(course.membership.progress) >= 100 ? __('Completed') : __('In Progress') }}
 			</div>
 
 			<div class="flex items-center justify-between mt-auto">

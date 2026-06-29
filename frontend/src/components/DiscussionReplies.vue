@@ -154,7 +154,20 @@ const replies = createResource({
 
 const fetchMentionUsers = () => {
 	if (user.data?.is_student) {
-		renderEditor.value = true
+		call('lms.lms.api.get_faculty_users')
+			.then((data) => {
+				mentionUsers.value = Object.values(data).map((user) => {
+					return {
+						value: user.name,
+						label: user.full_name,
+					}
+				})
+				renderEditor.value = true
+			})
+			.catch((err) => {
+				console.error(err)
+				renderEditor.value = true
+			})
 	} else {
 		allUsers.reload(
 			{},

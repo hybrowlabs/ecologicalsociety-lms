@@ -6,7 +6,7 @@
 			</div>
 			<div class="mt-4 flex items-center gap-2 text-sm text-ink-gray-7">
 				<Cloud class="size-4 stroke-1.5" />
-				<span>{{ __('Completed') }} {{ displayedProgress }}%</span>
+				<span>{{ displayedProgress >= 100 ? __('Completed') : __('In Progress') }}</span>
 			</div>
 			<div
 				class="h-1 w-full rounded-full bg-surface-gray-2 overflow-hidden mt-2"

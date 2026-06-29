@@ -12,18 +12,6 @@
 					<div
 						class="flex flex-wrap items-center gap-x-3 gap-y-2 text-ink-gray-7"
 					>
-						<template v-if="Number(course.data.rating) > 0">
-							<div class="flex items-center gap-1">
-								<Star class="size-4 text-yellow-500 fill-yellow-500" />
-								<span class="font-medium text-ink-gray-9">{{
-									formatRating(course.data.rating)
-								}}</span>
-								<span v-if="course.data.rating_count">
-									({{ formatAmount(course.data.rating_count) }})
-								</span>
-							</div>
-							<span class="lucide-dot size-5 text-ink-gray-7" />
-						</template>
 						<template v-if="course.data.enrollments">
 							<div class="flex items-center gap-1.5">
 								<UsersRound class="size-4 stroke-1.5" />

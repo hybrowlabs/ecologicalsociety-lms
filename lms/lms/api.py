@@ -507,6 +507,30 @@ def get_all_users():
 	return {user.name: user for user in users}
 
 
+@frappe.whitelist()
+def get_faculty_users():
+	roles = ["Moderator", "Course Creator", "Batch Evaluator", "System Manager"]
+	users_with_roles = frappe.get_all(
+		"Has Role",
+		filters={"role": ["in", roles]},
+		pluck="parent"
+	)
+
+	faculty_names = list(set(users_with_roles))
+	faculty_names.append("Administrator")
+
+	users = frappe.get_all(
+		"User",
+		filters={
+			"enabled": 1,
+			"name": ["in", faculty_names]
+		},
+		fields=["name", "full_name", "user_image"],
+	)
+
+	return {user.name: user for user in users}
+
+
 @frappe.whitelist(allow_guest=True)
 def get_sidebar_settings():
 	lms_settings = frappe.get_single("LMS Settings")

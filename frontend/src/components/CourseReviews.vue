@@ -2,12 +2,7 @@
 	<div v-if="reviews.data?.length || membership" class="mt-12">
 		<div class="flex items-center justify-between gap-3 mb-8">
 			<div class="flex items-center gap-2">
-				<Star class="size-5 text-yellow-500 fill-yellow-500" />
-				<span class="text-2xl font-semibold text-ink-gray-9">
-					{{ avg_rating ? formatRating(avg_rating) : '0' }}
-				</span>
 				<span class="text-lg text-ink-gray-7">
-					{{ __('course rating') }} &amp;
 					{{ reviews.data?.length || 0 }}
 					{{
 						(reviews.data?.length || 0) === 1
@@ -16,9 +11,7 @@
 					}}
 				</span>
 			</div>
-			<Button v-if="membership && !hasReviewed.data" @click="openReviewModal()">
-				{{ __('Write a Review') }}
-			</Button>
+
 		</div>
 
 		<div
