@@ -46,7 +46,7 @@ import { createResource, toast } from 'frappe-ui'
 import { reactive, onMounted, inject, ref, onBeforeUnmount } from 'vue'
 import EditorJS from '@editorjs/editorjs'
 import { ChevronRight } from 'lucide-vue-next'
-import { getEditorTools, enablePlyr, sanitizeEditorJs } from '@/utils'
+import { getEditorTools, enablePlyr } from '@/utils'
 import { useTelemetry } from 'frappe-ui/frappe'
 import { useOnboarding } from '@/utils/onboarding'
 
@@ -92,6 +92,8 @@ onMounted(() => {
 	editor.value = renderEditor('content')
 	instructorEditor.value = renderEditor('instructor-notes')
 	window.addEventListener('keydown', keyboardShortcut)
+	
+	// Enable Plyr on editor mounted (for any initially rendered video players)
 	enablePlyr()
 })
 
@@ -104,8 +106,59 @@ const renderEditor = (holder) => {
 			direction: document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr',
 		},
 		onChange: async (api, event) => {
-			enablePlyr()
 			markDirty()
+
+			try {
+				const currentIndex = api.blocks.getCurrentBlockIndex()
+				if (currentIndex !== -1) {
+					const block = api.blocks.getBlockByIndex(currentIndex)
+					if (block && (block.name === 'paragraph' || block.name === 'markdown')) {
+						const blockData = await block.save()
+						const text = blockData.data?.text || ''
+						const decodedText = (() => {
+							const txt = document.createElement('textarea')
+							txt.innerHTML = text
+							return txt.value
+						})()
+						const iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/i
+						const match = decodedText.match(iframeRegex)
+						if (match) {
+							const src = match[1]
+							if (src.includes('youtube.com/embed/') || src.includes('youtu.be/')) {
+								const videoID = extractYouTubeId(src)
+								if (videoID) {
+									await api.blocks.convert(block.id, 'embed', {
+										service: 'youtube',
+										source: src,
+										embed: videoID,
+										width: 580,
+										height: 320,
+										caption: '',
+									})
+								}
+							} else if (src.includes('player.vimeo.com/video/')) {
+								const vimeoMatch = src.match(/vimeo\.com\/video\/(\d+)/)
+								const vimeoId = vimeoMatch ? vimeoMatch[1] : src.split('/').pop()
+								if (vimeoId) {
+									await api.blocks.convert(block.id, 'embed', {
+										service: 'vimeo',
+										source: src,
+										embed: `https://player.vimeo.com/video/${vimeoId}`,
+										width: 580,
+										height: 320,
+										caption: '',
+									})
+								}
+							}
+						}
+					}
+				}
+			} catch (err) {
+				console.error('Error auto-converting iframe in onChange:', err)
+			}
+
+			// Initialize Plyr on any newly converted or loaded video player blocks
+			enablePlyr()
 		},
 	})
 }
@@ -146,28 +199,43 @@ const lessonDetails = createResource({
 const addLessonContent = (data) => {
 	editor.value.isReady.then(() => {
 		if (data.lesson.content) {
-			editor.value.render(sanitizeEditorJs(JSON.parse(data.lesson.content)))
+			// Load the raw EditorJS data without sanitization.
+			// sanitizeEditorJs converts YouTube iframes to Plyr divs which
+			// then get captured as text by EditorJS save(), corrupting content.
+			// Sanitization should only happen in read-only/view mode (Lesson.vue).
+			const parsed = JSON.parse(data.lesson.content)
+			const converted = convertIframesToEmbedBlocks(parsed)
+			editor.value.render(converted.data)
+			if (converted.changed) {
+				markDirty()
+			}
 		} else if (data.lesson.body) {
 			let blocks = convertToJSON(data.lesson)
 			editor.value.render({
 				blocks: blocks,
 			})
 		}
+		enablePlyr()
 	})
 }
 
 const addInstructorNotes = (data) => {
 	instructorEditor.value.isReady.then(() => {
 		if (data.lesson.instructor_content) {
-			instructorEditor.value.render(
-				sanitizeEditorJs(JSON.parse(data.lesson.instructor_content))
-			)
+			// Load raw data without sanitization — same reason as addLessonContent.
+			const parsed = JSON.parse(data.lesson.instructor_content)
+			const converted = convertIframesToEmbedBlocks(parsed)
+			instructorEditor.value.render(converted.data)
+			if (converted.changed) {
+				markDirty()
+			}
 		} else if (data.lesson.instructor_notes) {
 			let blocks = convertToJSON(data.lesson)
 			instructorEditor.value.render({
 				blocks: blocks,
 			})
 		}
+		enablePlyr()
 	})
 }
 
@@ -360,7 +428,8 @@ const saveLesson = (e) => {
 	}
 	editor.value.save().then((outputData) => {
 		outputData = removeEmptyBlocks(outputData)
-		lesson.content = JSON.stringify(outputData)
+		const converted = convertIframesToEmbedBlocks(outputData)
+		lesson.content = JSON.stringify(converted.data)
 		instructorEditor.value.save().then((outputData) => {
 			outputData = removeEmptyBlocks(outputData)
 			lesson.instructor_content = JSON.stringify(outputData)
@@ -369,8 +438,86 @@ const saveLesson = (e) => {
 			} else {
 				createNewLesson()
 			}
+			// If any iframes were converted to embed blocks, re-render the
+			// editor so the user sees the proper embed UI instead of raw HTML.
+			if (converted.changed) {
+				editor.value.render(converted.data).then(() => {
+					enablePlyr()
+				})
+			}
 		})
 	})
+}
+
+const decodeHTML = (html) => {
+	if (!html) return ''
+	const txt = document.createElement('textarea')
+	txt.innerHTML = html
+	return txt.value
+}
+
+/**
+ * Scan paragraph blocks for YouTube/Vimeo iframe HTML and convert them
+ * into proper EditorJS embed blocks. This prevents raw iframe text from
+ * persisting in the database and ensures embeds render correctly in both
+ * the editor and the viewer.
+ */
+const convertIframesToEmbedBlocks = (outputData) => {
+	let changed = false
+	const iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/i
+
+	outputData.blocks = outputData.blocks.map((block) => {
+		if (block.type !== 'paragraph' && block.type !== 'markdown') return block
+
+		const text = block.data?.text || ''
+		const decodedText = decodeHTML(text)
+		const match = decodedText.match(iframeRegex)
+		if (!match) return block
+
+		const src = match[1]
+
+		// YouTube embed
+		if (src.includes('youtube.com/embed/') || src.includes('youtu.be/')) {
+			const videoID = extractYouTubeId(src)
+			if (videoID) {
+				changed = true
+				return {
+					type: 'embed',
+					data: {
+						service: 'youtube',
+						source: src,
+						embed: videoID,
+						width: 580,
+						height: 320,
+						caption: '',
+					},
+				}
+			}
+		}
+
+		// Vimeo embed
+		if (src.includes('player.vimeo.com/video/')) {
+			const vimeoMatch = src.match(/vimeo\.com\/video\/(\d+)/)
+			if (vimeoMatch) {
+				changed = true
+				return {
+					type: 'embed',
+					data: {
+						service: 'vimeo',
+						source: src,
+						embed: `https://player.vimeo.com/video/${vimeoMatch[1]}`,
+						width: 580,
+						height: 320,
+						caption: '',
+					},
+				}
+			}
+		}
+
+		return block
+	})
+
+	return { data: outputData, changed }
 }
 
 const removeEmptyBlocks = (outputData) => {

@@ -170,15 +170,13 @@ export function getEditorTools() {
 					youtube: {
 						regex: /^(?:https?:\/\/)?(?:www\.)?(?:(?:youtu\.be\/)|(?:youtube\.com)\/(?:v\/|u\/\w\/|embed\/|watch))(?:(?:\?v=)?([^#&?=]*))?((?:[?&]\w*=\w*)*)$/,
 						embedUrl: '<%= remote_id %>',
-						/* 'https://www.youtube.com/embed/<%= remote_id %>?origin=https://plyr.io&amp;iv_load_policy=3&amp;modestbranding=1&amp;playsinline=1&amp;showinfo=0&amp;rel=0&amp;enablejsapi=1' */
-						html: `<div class="video-player" data-plyr-provider="youtube"></div>`,
+						html: `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="<%= remote_id %>" oncontextmenu="return false"></div>`,
 						id: ([id]) => id,
 					},
 					vimeo: {
 						regex: /^(?:http[s]?:\/\/)?(?:www\.)?vimeo\.com\/(\d+)(?:\/([a-zA-Z0-9]+))?(?:\?[^\s]*)?$/,
-						embedUrl:
-							'https://player.vimeo.com/video/<%= remote_id %>',
-						html: `<div class="video-player" data-plyr-provider="vimeo"></div>`,
+						embedUrl: '<%= remote_id %>',
+						html: `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="vimeo" data-plyr-embed-id="<%= remote_id %>" oncontextmenu="return false"></div>`,
 						id: ([id, hash]) => (hash ? `${id}?h=${hash}` : id),
 					},
 					cloudflareStream: {
@@ -766,8 +764,44 @@ const sanitizeJSON = (node) => {
 
 export const sanitizeEditorJs = (data) => {
 	if (!data || !Array.isArray(data.blocks)) return data
-	for (const node of data.blocks) {
-		if (node && node.type !== 'code') {
+	for (let i = 0; i < data.blocks.length; i++) {
+		const node = data.blocks[i]
+		if (!node) continue
+
+		// Convert EditorJS embed blocks (YouTube/Vimeo) into paragraph blocks
+		// containing a Plyr div, so the read-only renderer shows the Plyr player.
+		if (node.type === 'embed' && node.data) {
+			const service = node.data.service
+			if (service === 'youtube') {
+				const embedUrl = node.data.embed || ''
+				const videoID = extractYouTubeId(embedUrl) || embedUrl
+				if (videoID) {
+					data.blocks[i] = {
+						type: 'paragraph',
+						data: {
+							text: `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}" oncontextmenu="return false"></div>`,
+						},
+					}
+					continue
+				}
+			}
+			if (service === 'vimeo') {
+				const embedUrl = node.data.embed || ''
+				const vimeoMatch = embedUrl.match(/vimeo\.com\/video\/(\d+)/)
+				const vimeoId = vimeoMatch ? vimeoMatch[1] : embedUrl
+				if (vimeoId) {
+					data.blocks[i] = {
+						type: 'paragraph',
+						data: {
+							text: `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="vimeo" data-plyr-embed-id="${vimeoId}" oncontextmenu="return false"></div>`,
+						},
+					}
+					continue
+				}
+			}
+		}
+
+		if (node.type !== 'code') {
 			node.data = sanitizeJSON(node.data)
 		}
 	}
@@ -834,11 +868,40 @@ export const enablePlyr = async () => {
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const setupPlyrForVideo = (video, players) => {
+	// Skip if Plyr is already initialized on this element
+	if (video._plyrInitialized) return
+
 	const src = video.getAttribute('src')
 
 	if (src) {
 		const videoID = extractYouTubeId(src)
 		video.setAttribute('data-plyr-embed-id', videoID)
+	}
+
+	// If this is a YouTube provider but has no embed-id, try to find it
+	// from a sibling/parent EditorJS embed block's iframe, or from the
+	// embed-tool container's data.
+	const provider = video.getAttribute('data-plyr-provider')
+	if (provider === 'youtube' && !video.getAttribute('data-plyr-embed-id')) {
+		// Look for an iframe with a YouTube src in the same embed-tool block
+		const embedBlock = video.closest('.embed-tool__content') || video.closest('.cdx-block')
+		if (embedBlock) {
+			const iframe = embedBlock.querySelector('iframe[src*="youtube"]')
+			if (iframe) {
+				const videoID = extractYouTubeId(iframe.getAttribute('src'))
+				if (videoID) video.setAttribute('data-plyr-embed-id', videoID)
+			}
+		}
+	}
+
+	// Do NOT initialize Plyr without a video ID for YouTube/Vimeo.
+	// Without an ID, Plyr creates empty controls whose text content
+	// ("PausePlay% buffered...") is visible as plain text.
+	if (
+		(provider === 'youtube' || provider === 'vimeo') &&
+		!video.getAttribute('data-plyr-embed-id')
+	) {
+		return
 	}
 
 	let controls = [
@@ -870,6 +933,7 @@ const setupPlyrForVideo = (video, players) => {
 		},
 	})
 
+	video._plyrInitialized = true
 	players.push(player)
 }
 
