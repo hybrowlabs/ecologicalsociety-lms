@@ -731,9 +731,21 @@ const sanitizeJSON = (node) => {
 			decoded = decodeEntities(node)
 		}
 		decoded = decoded.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
+
+		if (decoded.includes('youtube.com/embed/')) {
+			const match = decoded.match(/src="([^"]+youtube\.com\/embed\/[^"]+)"/i)
+			if (match) {
+				const videoID = extractYouTubeId(match[1])
+				if (videoID) {
+					decoded = `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}"></div>`
+				}
+			}
+		}
+
 		return DOMPurify.sanitize(decoded, {
-			ADD_TAGS: ['iframe'],
+			ADD_TAGS: ['iframe', 'div'],
 			ADD_ATTR: [
+				'class',
 				'allow',
 				'allowfullscreen',
 				'frameborder',
@@ -743,6 +755,8 @@ const sanitizeJSON = (node) => {
 				'referrerpolicy',
 				'width',
 				'height',
+				'data-plyr-provider',
+				'data-plyr-embed-id',
 			],
 		})
 	}

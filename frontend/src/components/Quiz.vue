@@ -325,46 +325,121 @@
 				</div>
 			</div>
 		</div>
-		<div v-else class="border rounded-lg p-20 space-y-2 text-center">
-			<div class="text-lg font-semibold text-ink-gray-9">
-				{{ __('Quiz Summary') }}
-			</div>
-			<div
-				v-if="quizSubmission.data.is_open_ended"
-				class="leading-5 text-ink-gray-7"
-			>
-				{{
-					__(
-						"Your submission has been successfully saved. The instructor will review and grade it shortly, and you'll be notified of your final result."
-					)
-				}}
-			</div>
-			<div v-else class="text-ink-gray-7">
-				{{
-					__(
-						'You got {0}% correct answers with a score of {1} out of {2}'
-					).format(
-						Math.ceil(quizSubmission.data.percentage),
-						quizSubmission.data.score,
-						quizSubmission.data.score_out_of
-					)
-				}}
-			</div>
-			<div class="flex items-center justify-center gap-x-2">
-				<Button
-					@click="resetQuiz()"
-					v-if="
-						!quiz.data.max_attempts ||
-						attempts?.data.length < quiz.data.max_attempts
-					"
+		<div v-else class="border rounded-lg p-10 space-y-6">
+			<div class="text-center space-y-2">
+				<div class="text-lg font-semibold text-ink-gray-9">
+					{{ __('Quiz Summary') }}
+				</div>
+				<div
+					v-if="quizSubmission.data.is_open_ended"
+					class="leading-5 text-ink-gray-7"
 				>
-					<span>
-						{{ __('Try Again') }}
-					</span>
-				</Button>
-				<Button v-if="inVideo" @click="props.backToVideo()">
-					{{ __('Resume Video') }}
-				</Button>
+					{{
+						__(
+							"Your submission has been successfully saved. The instructor will review and grade it shortly, and you'll be notified of your final result."
+						)
+					}}
+				</div>
+				<div v-else class="text-ink-gray-7">
+					{{
+						__(
+							'You got {0}% correct answers with a score of {1} out of {2}'
+						).format(
+							Math.ceil(quizSubmission.data.percentage),
+							quizSubmission.data.score,
+							quizSubmission.data.score_out_of
+						)
+					}}
+				</div>
+				<div class="flex items-center justify-center gap-x-2 pt-2">
+					<Button
+						@click="resetQuiz()"
+						v-if="
+							!quiz.data.max_attempts ||
+							attempts?.data.length < quiz.data.max_attempts
+						"
+					>
+						<span>
+							{{ __('Try Again') }}
+						</span>
+					</Button>
+					<Button v-if="inVideo" @click="props.backToVideo()">
+						{{ __('Resume Video') }}
+					</Button>
+					<Button
+						v-if="!quizSubmission.data.is_open_ended"
+						@click="showReview = !showReview"
+					>
+						{{ showReview ? __('Hide Review') : __('Review Questions') }}
+					</Button>
+				</div>
+			</div>
+
+			<!-- Detailed Review Section -->
+			<div v-if="showReview" class="mt-8 space-y-6 border-t pt-6 text-left">
+				<div v-for="(question, qIdx) in questions" :key="qIdx" class="border rounded-lg p-5 bg-surface-gray-1">
+					<div class="flex justify-between">
+						<div class="text-sm text-ink-gray-5">
+							{{ __('Question {0}').format(qIdx + 1) }}
+						</div>
+						<div class="text-ink-gray-9 text-sm font-semibold">
+							{{ question.marks }} {{ question.marks == 1 ? __('Mark') : __('Marks') }}
+						</div>
+					</div>
+					<div
+						class="text-ink-gray-9 font-semibold mt-2 leading-5"
+						v-html="questionsByName[question.question]?.question"
+					></div>
+					
+					<!-- Choices type -->
+					<div v-if="questionsByName[question.question]?.type == 'Choices'" class="space-y-3 mt-4">
+						<div v-for="index in 4" :key="index">
+							<div
+								v-if="questionsByName[question.question]?.[`option_${index}`]"
+								class="flex items-center justify-between rounded-md p-3 w-full border"
+								:class="[
+									questionsByName[question.question]?.[`is_correct_${index}`] 
+										? 'bg-surface-green-1 border-emerald-200' 
+										: 'bg-surface-gray-3 border-transparent'
+								]"
+							>
+								<div class="flex items-center gap-x-2">
+									<CheckCircle
+										v-if="questionsByName[question.question]?.[`is_correct_${index}`]"
+										class="w-4 h-4 text-ink-green-2 shrink-0"
+									/>
+									<span
+										class="text-ink-gray-9"
+										v-html="questionsByName[question.question]?.[`option_${index}`]"
+									></span>
+								</div>
+								<Badge 
+									v-if="questionsByName[question.question]?.[`is_correct_${index}`]"
+									theme="green" 
+									:label="__('Correct Answer')" 
+								/>
+							</div>
+							<div
+								v-if="questionsByName[question.question]?.[`explanation_${index}`]"
+								class="mt-2 ms-6 text-xs text-ink-gray-7 bg-surface-white border rounded p-2"
+							>
+								<span class="font-medium text-ink-gray-9">{{ __('Explanation') }}:</span> {{ questionsByName[question.question]?.[`explanation_${index}`] }}
+							</div>
+						</div>
+					</div>
+					
+					<!-- User Input / Open Ended type -->
+					<div v-else class="mt-4">
+						<div v-if="questionsByName[question.question]?.type == 'User Input'" class="text-sm">
+							<div class="font-medium text-ink-gray-7 mb-1">{{ __('Correct Possibilities') }}:</div>
+							<ul class="list-disc list-inside text-ink-gray-9">
+								<li v-for="n in 4" :key="n" v-show="questionsByName[question.question]?.[`possibility_${n}`]">
+									{{ questionsByName[question.question]?.[`possibility_${n}`] }}
+								</li>
+							</ul>
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 		<div
@@ -478,6 +553,7 @@ const questions = ref([])
 const attemptedQuestions = ref([])
 const reviewQuestions = ref([])
 const showSubmissionConfirmation = ref(false)
+const showReview = ref(false)
 const possibleAnswer = ref(null)
 const timer = ref(0)
 let timerInterval = null
@@ -881,6 +957,7 @@ const resetQuiz = () => {
 	quizSubmission.reset()
 	populateQuestions()
 	setupTimer()
+	showReview.value = false
 }
 
 const getInstructions = (question) => {

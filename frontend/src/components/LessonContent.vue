@@ -1,24 +1,18 @@
 <template>
 	<div v-if="youtube">
-		<iframe
-			class="youtube-video"
-			:src="getYouTubeVideoSource(youtube.split('/').pop())"
-			width="100%"
-			:height="screenSize.width < 640 ? 200 : 400"
-			frameborder="0"
-			allowfullscreen
-		></iframe>
+		<div
+			class="video-player rounded-md overflow-hidden border border-gray-100"
+			data-plyr-provider="youtube"
+			:data-plyr-embed-id="youtube.split('/').pop()"
+		></div>
 	</div>
 	<div v-for="block in content?.split('\n\n')">
 		<div v-if="block.includes('{{ YouTubeVideo')">
-			<iframe
-				class="youtube-video"
-				:src="getYouTubeVideoSource(block)"
-				width="100%"
-				:height="screenSize.width < 640 ? 200 : 400"
-				frameborder="0"
-				allowfullscreen
-			></iframe>
+			<div
+				class="video-player rounded-md overflow-hidden border border-gray-100"
+				data-plyr-provider="youtube"
+				:data-plyr-embed-id="getId(block)"
+			></div>
 		</div>
 		<div v-else-if="block.includes('{{ Quiz')">
 			<Quiz :quiz="getId(block)" />
@@ -71,6 +65,17 @@ const markdown = new MarkdownIt({
 	linkify: true,
 })
 
+const extractYouTubeId = (url) => {
+	try {
+		var regExp =
+			/^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/
+		var match = url.match(regExp)
+		return match && match[7].length == 11 ? match[7] : false
+	} catch (error) {
+		return false
+	}
+}
+
 const cleanIframeHTML = (html) => {
 	let decoded = html
 	if (html.includes('&lt;') || html.includes('&gt;')) {
@@ -78,14 +83,26 @@ const cleanIframeHTML = (html) => {
 		txt.innerHTML = html
 		decoded = txt.value
 	}
-	return decoded.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
+	decoded = decoded.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
+
+	if (decoded.includes('youtube.com/embed/')) {
+		const match = decoded.match(/src="([^"]+youtube\.com\/embed\/[^"]+)"/i)
+		if (match) {
+			const videoID = extractYouTubeId(match[1])
+			if (videoID) {
+				return `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}"></div>`
+			}
+		}
+	}
+	return decoded
 }
 
 const renderSafe = (block) => {
 	const cleanedBlock = cleanIframeHTML(block)
 	return DOMPurify.sanitize(markdown.render(cleanedBlock), {
-		ADD_TAGS: ['iframe'],
+		ADD_TAGS: ['iframe', 'div'],
 		ADD_ATTR: [
+			'class',
 			'allow',
 			'allowfullscreen',
 			'frameborder',
@@ -95,6 +112,8 @@ const renderSafe = (block) => {
 			'referrerpolicy',
 			'width',
 			'height',
+			'data-plyr-provider',
+			'data-plyr-embed-id',
 		],
 	})
 }
