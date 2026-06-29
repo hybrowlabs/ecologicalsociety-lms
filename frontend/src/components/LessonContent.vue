@@ -3,7 +3,7 @@
 		<div
 			class="video-player rounded-md overflow-hidden border border-gray-100"
 			data-plyr-provider="youtube"
-			:data-plyr-embed-id="youtube.split('/').pop()"
+			:data-plyr-embed-id="extractYouTubeId(youtube) || youtube.split('/').pop()"
 			@contextmenu.prevent
 		></div>
 	</div>
