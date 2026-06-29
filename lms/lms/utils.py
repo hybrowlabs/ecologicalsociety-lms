@@ -2581,5 +2581,34 @@ def sanitize_json(node):
 	if isinstance(node, list):
 		return [sanitize_json(v) for v in node]
 	if isinstance(node, str) and ("<" in node or ">" in node):
-		return sanitize_html(node, always_sanitize=True)
+		return sanitize_html_allowing_iframe(node)
 	return node
+
+def sanitize_html_allowing_iframe(text):
+	import re
+	import uuid
+
+	# Decode escaped iframe tags if needed
+	text = text.replace("&lt;", "<").replace("&gt;", ">")
+
+	iframe_pattern = re.compile(r'<iframe\b[^>]*>.*?</iframe>', re.DOTALL | re.IGNORECASE)
+	iframes = iframe_pattern.findall(text)
+
+	if not iframes:
+		return sanitize_html(text, always_sanitize=True)
+
+	placeholders = []
+	token_prefix = f"IFRAMETEMPTOKEN{uuid.uuid4().hex}"
+	for i, iframe in enumerate(iframes):
+		# Clean up any nested anchor tags within the iframe code
+		cleaned_iframe = re.sub(r'<a\b[^>]*>(.*?)</a>', r'\1', iframe, flags=re.IGNORECASE | re.DOTALL)
+		placeholder = f"{token_prefix}{i}"
+		placeholders.append((placeholder, cleaned_iframe))
+		text = text.replace(iframe, placeholder)
+
+	sanitized_text = sanitize_html(text, always_sanitize=True)
+
+	for placeholder, cleaned_iframe in placeholders:
+		sanitized_text = sanitized_text.replace(placeholder, cleaned_iframe)
+
+	return sanitized_text

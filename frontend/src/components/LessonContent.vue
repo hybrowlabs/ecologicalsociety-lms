@@ -71,7 +71,33 @@ const markdown = new MarkdownIt({
 	linkify: true,
 })
 
-const renderSafe = (block) => DOMPurify.sanitize(markdown.render(block))
+const cleanIframeHTML = (html) => {
+	let decoded = html
+	if (html.includes('&lt;') || html.includes('&gt;')) {
+		const txt = document.createElement('textarea')
+		txt.innerHTML = html
+		decoded = txt.value
+	}
+	return decoded.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
+}
+
+const renderSafe = (block) => {
+	const cleanedBlock = cleanIframeHTML(block)
+	return DOMPurify.sanitize(markdown.render(cleanedBlock), {
+		ADD_TAGS: ['iframe'],
+		ADD_ATTR: [
+			'allow',
+			'allowfullscreen',
+			'frameborder',
+			'scrolling',
+			'src',
+			'title',
+			'referrerpolicy',
+			'width',
+			'height',
+		],
+	})
+}
 
 const props = defineProps({
 	content: {

@@ -721,9 +721,30 @@ const sanitizeJSON = (node) => {
 	}
 	if (
 		typeof node === 'string' &&
-		(node.includes('<') || node.includes('>'))
+		(node.includes('<') ||
+			node.includes('>') ||
+			node.includes('&lt;') ||
+			node.includes('&gt;'))
 	) {
-		return DOMPurify.sanitize(node)
+		let decoded = node
+		if (node.includes('&lt;') || node.includes('&gt;')) {
+			decoded = decodeEntities(node)
+		}
+		decoded = decoded.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
+		return DOMPurify.sanitize(decoded, {
+			ADD_TAGS: ['iframe'],
+			ADD_ATTR: [
+				'allow',
+				'allowfullscreen',
+				'frameborder',
+				'scrolling',
+				'src',
+				'title',
+				'referrerpolicy',
+				'width',
+				'height',
+			],
+		})
 	}
 	return node
 }
