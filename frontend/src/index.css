@@ -1,5 +1,6 @@
 @import 'frappe-ui/style.css';
 @import './styles/codemirror.css';
+@import 'plyr/dist/plyr.css';
 
 /*
  * Pin a Combobox/MultiSelect footer to the bottom of its dropdown so footer
