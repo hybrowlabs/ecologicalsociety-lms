@@ -4,6 +4,7 @@
 			class="video-player rounded-md overflow-hidden border border-gray-100"
 			data-plyr-provider="youtube"
 			:data-plyr-embed-id="youtube.split('/').pop()"
+			@contextmenu.prevent
 		></div>
 	</div>
 	<div v-for="block in content?.split('\n\n')">
@@ -12,6 +13,7 @@
 				class="video-player rounded-md overflow-hidden border border-gray-100"
 				data-plyr-provider="youtube"
 				:data-plyr-embed-id="getId(block)"
+				@contextmenu.prevent
 			></div>
 		</div>
 		<div v-else-if="block.includes('{{ Quiz')">
@@ -90,7 +92,7 @@ const cleanIframeHTML = (html) => {
 		if (match) {
 			const videoID = extractYouTubeId(match[1])
 			if (videoID) {
-				return `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}"></div>`
+				return `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}" oncontextmenu="return false"></div>`
 			}
 		}
 	}
@@ -114,6 +116,7 @@ const renderSafe = (block) => {
 			'height',
 			'data-plyr-provider',
 			'data-plyr-embed-id',
+			'oncontextmenu',
 		],
 	})
 }

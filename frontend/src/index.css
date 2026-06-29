@@ -14,6 +14,20 @@
 	z-index: 1;
 }
 
+.youtube-embed-wrapper iframe ~ .youtube-overlay-top,
+.youtube-embed-wrapper iframe ~ .youtube-overlay-bottom-left,
+.youtube-embed-wrapper iframe ~ .youtube-overlay-bottom-right {
+	background: #000000 !important;
+}
+
+/* Block right-clicks and native YouTube interactions by disabling pointer-events on the iframe */
+.plyr__video-embed iframe,
+.youtube-embed-wrapper iframe,
+.video-player iframe,
+iframe.youtube-video {
+	pointer-events: none !important;
+}
+
 .youtube-embed-wrapper {
 	position: relative;
 	display: inline-block;
@@ -43,7 +57,7 @@
 	position: absolute;
 	bottom: 0;
 	right: 0;
-	width: 70px;
+	width: 150px;
 	height: 48px;
 	z-index: 10;
 	background: transparent;

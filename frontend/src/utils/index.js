@@ -737,7 +737,7 @@ const sanitizeJSON = (node) => {
 			if (match) {
 				const videoID = extractYouTubeId(match[1])
 				if (videoID) {
-					decoded = `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}"></div>`
+					decoded = `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}" oncontextmenu="return false"></div>`
 				}
 			}
 		}
@@ -757,6 +757,7 @@ const sanitizeJSON = (node) => {
 				'height',
 				'data-plyr-provider',
 				'data-plyr-embed-id',
+				'oncontextmenu',
 			],
 		})
 	}
