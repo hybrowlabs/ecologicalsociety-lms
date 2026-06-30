@@ -414,6 +414,7 @@ onMounted(() => {
 	startTimer()
 	if (!props.embedded) sidebarStore.isSidebarCollapsed = true
 	document.addEventListener('fullscreenchange', attachFullscreenEvent)
+	window.addEventListener('message', handleIframeMessage)
 	socket.on('update_lesson_progress', (data) => {
 		if (data.course === props.courseName) {
 			lessonProgress.value = data.progress
@@ -421,6 +422,12 @@ onMounted(() => {
 		}
 	})
 })
+
+const handleIframeMessage = (event) => {
+	if (event.data && event.data.type === 'next-lesson') {
+		switchLesson('next')
+	}
+}
 
 const attachFullscreenEvent = () => {
 	if (document.fullscreenElement) {
@@ -435,6 +442,7 @@ const attachFullscreenEvent = () => {
 
 onBeforeUnmount(() => {
 	document.removeEventListener('fullscreenchange', attachFullscreenEvent)
+	window.removeEventListener('message', handleIframeMessage)
 	if (!props.embedded) sidebarStore.isSidebarCollapsed = false
 	trackVideoWatchDuration()
 })

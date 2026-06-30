@@ -1,13 +1,11 @@
 <template>
 	<div
 		v-if="assignment.data"
-		class="grid grid-cols-2 h-full"
-		:class="{ 'border rounded-lg overflow-auto': !showTitle }"
+		class="flex flex-col h-full overflow-y-auto bg-surface-white"
+		:class="{ 'border rounded-lg': !showTitle }"
 	>
-		<div
-			class="border-e p-5 overflow-y-auto h-[calc(100vh-3.2rem)]"
-			:class="{ 'h-full': !showTitle }"
-		>
+		<!-- Top Part: Question & Reference Files -->
+		<div class="p-5 border-b">
 			<div v-if="showTitle" class="text-lg font-semibold mb-5 text-ink-gray-9">
 				<div v-if="submissionName === 'new'">
 					{{ __('Submission by') }} {{ user.data?.full_name }}
@@ -21,25 +19,33 @@
 			</div>
 			<div
 				v-html="assignment.data.question"
-				class="ProseMirror prose prose-table:table-fixed prose-td:p-2 prose-th:p-2 prose-td:border prose-th:border prose-td:border-outline-gray-2 prose-th:border-outline-gray-2 prose-td:relative prose-th:relative prose-th:bg-surface-gray-2 prose-sm max-w-none !whitespace-normal"
+				class="ProseMirror prose prose-table:table-fixed prose-td:p-2 prose-th:p-2 prose-td:border prose-th:border prose-td:border-outline-gray-2 prose-th:border-outline-gray-2 prose-td:relative prose-th:relative prose-th:bg-surface-gray-2 prose-sm max-w-none !whitespace-normal mb-5"
 			></div>
-			<div v-if="referenceFiles.length" class="mt-5 space-y-2">
+			<div v-if="referenceFiles.length" class="mt-5 space-y-4">
 				<div class="font-semibold text-ink-gray-9">
 					{{ __('Reference Files') }}
 				</div>
 				<div
 					v-for="(file, index) in referenceFiles"
 					:key="index"
-					class="flex items-center gap-2"
+					class="flex flex-col gap-2"
 				>
 					<template v-if="file.file_type === 'Video'">
 						<video
 							v-if="isVideoUrl(file.file)"
 							:src="file.file"
 							controls
-							class="w-full max-h-64 rounded-md"
+							class="w-full max-h-96 rounded-md shadow-sm"
 						/>
 						<div v-else v-html="file.file" class="w-full"></div>
+					</template>
+					<template v-else-if="file.file_type === 'PDF'">
+						<div class="w-full mt-2">
+							<div class="text-sm font-semibold text-ink-gray-7 mb-2">
+								{{ file.file_name || file.file.split('/').pop() }}
+							</div>
+							<PDFViewer :src="file.file" />
+						</div>
 					</template>
 					<a
 						v-else
@@ -54,8 +60,9 @@
 			</div>
 		</div>
 
-		<div class="flex flex-col overflow-y-auto">
-			<div class="p-5 space-y-5">
+		<!-- Bottom Part: Submission Form -->
+		<div class="flex flex-col p-5 bg-surface-gray-1">
+			<div class="space-y-5">
 				<div class="flex items-center justify-between">
 					<div class="font-semibold text-ink-gray-9">
 						{{ __('Submission') }}
@@ -86,15 +93,25 @@
 						!['Pass', 'Fail'].includes(submissionResource.doc?.status) &&
 						submissionResource.doc?.owner == user.data?.name
 					"
-					class="bg-surface-blue-2 text-ink-blue-2 p-3 rounded-md leading-5 text-sm"
+					class="bg-surface-blue-2 text-ink-blue-2 p-3 rounded-md leading-5 text-sm flex flex-col gap-3"
 				>
-					{{ __("You've successfully submitted the assignment.") }}
-					{{
-						__(
-							"Once the moderator grades your submission, you'll find the details here."
-						)
-					}}
-					{{ __('Feel free to make edits to your submission if needed.') }}
+					<div>
+						{{ __("You've successfully submitted the assignment.") }}
+						{{
+							__(
+								"Once the moderator grades your submission, you'll find the details here."
+							)
+						}}
+						{{ __('Feel free to make edits to your submission if needed.') }}
+					</div>
+					<Button
+						v-if="fromLesson"
+						variant="solid"
+						class="w-fit mt-1"
+						@click="goToNextLesson"
+					>
+						{{ __('Next Lesson') }}
+					</Button>
 				</div>
 				<div v-if="showUploader()" class="border rounded-lg p-3">
 					<div class="font-semibold mb-2">
@@ -247,6 +264,7 @@ import { computed, inject, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { FileText, X } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { validateFile } from '@/utils'
+import PDFViewer from '@/components/PDFViewer.vue'
 
 const answer = ref(null)
 const attachment = ref(null)
@@ -254,6 +272,14 @@ const comments = ref(null)
 const router = useRouter()
 const user = inject('$user')
 const isDirty = ref(false)
+
+const fromLesson = computed(() => {
+	return !!router.currentRoute.value.query.fromLesson
+})
+
+const goToNextLesson = () => {
+	window.parent.postMessage({ type: 'next-lesson' }, '*')
+}
 
 const props = defineProps({
 	assignmentID: {

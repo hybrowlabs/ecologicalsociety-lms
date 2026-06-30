@@ -58,7 +58,7 @@ export class Assignment {
 				const submissionPath = getLmsRoute(
 					`assignment-submission/${assignment}/${submission}?fromLesson=1`
 				)
-				this.wrapper.innerHTML = `<iframe src="${submissionPath}" class="w-full h-[500px]"></iframe>`
+				this.wrapper.innerHTML = `<iframe src="${submissionPath}" class="w-full h-[950px]"></iframe>`
 			})
 			return
 		}
