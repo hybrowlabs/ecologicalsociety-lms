@@ -131,7 +131,7 @@
 					class="pointer-events-auto flex w-[30%] items-center justify-between gap-x-2 border-s border-b bg-surface-white p-1 px-5"
 				>
 					<div class="py-2.5 font-medium text-base text-ink-gray-9">
-						{{ __('Chapters') }}
+						{{ __('Sessions') }}
 					</div>
 					<Button size="sm" @click="courseEditorRef?.openAddChapter()">
 						<template #prefix>

@@ -74,6 +74,8 @@ export interface OutlineLesson {
 	number: string
 	icon?: string
 	is_complete?: boolean
+	include_in_preview?: boolean | 0 | 1
+	is_locked?: boolean
 }
 
 export interface OutlineChapter {

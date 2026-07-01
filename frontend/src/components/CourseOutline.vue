@@ -26,12 +26,12 @@
 			class="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center text-ink-gray-5 h-full"
 		>
 			<BookOpen class="size-8 stroke-1.5" />
-			<div class="text-sm">{{ __('No chapters yet') }}</div>
+			<div class="text-sm">{{ __('No sessions yet') }}</div>
 			<Button @click="openChapterModal()">
 				<template #prefix>
 					<Plus class="size-4 stroke-1.5" />
 				</template>
-				{{ __('Create chapter') }}
+				{{ __('Create session') }}
 			</Button>
 		</div>
 		<div
@@ -135,7 +135,7 @@ const router = useRouter()
 const showChapterModal = ref<boolean>(false)
 const currentChapter = ref<OutlineChapter | null>(null)
 const { $dialog } = getCurrentInstance()!.appContext.config
-	.globalProperties as {
+	.globalProperties as unknown as {
 	$dialog: DialogFn
 }
 

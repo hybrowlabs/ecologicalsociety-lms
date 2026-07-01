@@ -57,7 +57,7 @@
 				v-else-if="props.course?.data"
 				ref="courseOutlineRef"
 				:courseName="props.course.data.name"
-				:title="__('Chapters')"
+				:title="__('Sessions')"
 				:allowEdit="true"
 				:hideHeader="true"
 				:inlineSelect="true"

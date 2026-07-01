@@ -10,12 +10,12 @@
 			<div>
 				{{
 					__(
-						'There are no chapters in this course. Create and manage chapters from here.'
+						'There are no sessions in this course. Create and manage sessions from here.'
 					)
 				}}
 			</div>
 			<Button class="mt-4">
-				{{ __('Add Chapter') }}
+				{{ __('Add Session') }}
 			</Button>
 		</div>
 	</div>

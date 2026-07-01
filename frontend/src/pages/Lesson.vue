@@ -338,13 +338,10 @@ import {
 import EditorJS from '@editorjs/editorjs'
 import LessonContent from '@/components/LessonContent.vue'
 import CourseInstructors from '@/components/CourseInstructors.vue'
-import ProgressBar from '@/components/ProgressBar.vue'
 import Discussions from '@/components/Discussions.vue'
 import CertificationLinks from '@/components/CertificationLinks.vue'
 import VideoStatistics from '@/components/Modals/VideoStatistics.vue'
-import CourseOutline from '@/components/CourseOutline.vue'
 import StudentLessonSidebar from '@/components/StudentLessonSidebar.vue'
-import UserAvatar from '@/components/UserAvatar.vue'
 import Notes from '@/components/Notes/Notes.vue'
 import InlineLessonMenu from '@/components/Notes/InlineLessonMenu.vue'
 import { getLmsRoute } from '@/utils/basePath'
@@ -488,8 +485,66 @@ const setupLesson = (data) => {
 		)
 	editor.value?.isReady.then(() => {
 		checkIfDiscussionsAllowed()
+		makeLinksExternal()
 	})
 	checkQuiz()
+}
+
+const makeLinksExternal = () => {
+	nextTick(() => {
+		;['#editor', '#instructor-content'].forEach((sel) => {
+			const root = document.querySelector(sel)
+			if (!root) return
+			// Make existing <a> tags open in a new tab
+			root.querySelectorAll('a[href]').forEach((link) => {
+				link.setAttribute('target', '_blank')
+				link.setAttribute('rel', 'noopener noreferrer')
+			})
+			// Linkify bare URLs typed as plain text
+			linkifyTextNodes(root)
+		})
+	})
+}
+
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/g
+
+const linkifyTextNodes = (root) => {
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+		acceptNode(node) {
+			if (node.parentElement?.closest('a, code, pre'))
+				return NodeFilter.FILTER_REJECT
+			URL_PATTERN.lastIndex = 0
+			return URL_PATTERN.test(node.textContent || '')
+				? NodeFilter.FILTER_ACCEPT
+				: NodeFilter.FILTER_SKIP
+		},
+	})
+	const nodes = []
+	let n
+	while ((n = walker.nextNode())) nodes.push(n)
+
+	nodes.forEach((textNode) => {
+		const text = textNode.textContent || ''
+		const frag = document.createDocumentFragment()
+		let last = 0
+		URL_PATTERN.lastIndex = 0
+		let m
+		while ((m = URL_PATTERN.exec(text)) !== null) {
+			if (m.index > last)
+				frag.appendChild(document.createTextNode(text.slice(last, m.index)))
+			const a = document.createElement('a')
+			a.href = m[0]
+			a.textContent = m[0]
+			a.target = '_blank'
+			a.rel = 'noopener noreferrer'
+			a.className = 'underline'
+			frag.appendChild(a)
+			last = m.index + m[0].length
+		}
+		if (last < text.length)
+			frag.appendChild(document.createTextNode(text.slice(last)))
+		textNode.parentNode?.replaceChild(frag, textNode)
+	})
 }
 
 const checkQuiz = () => {
@@ -639,7 +694,7 @@ watch(
 	[() => route.params.chapterNumber, () => route.params.lessonNumber],
 	async (
 		[newChapterNumber, newLessonNumber],
-		[oldChapterNumber, oldLessonNumber]
+		[_oldChapterNumber, _oldLessonNumber]
 	) => {
 		if (newChapterNumber || newLessonNumber) {
 			plyrSources.value = []
@@ -835,9 +890,6 @@ const attachVideoEndedListeners = () => {
 
 const updatePlyrVideoTime = (video) => {
 	plyrSources.value.forEach((plyrSource) => {
-		let lastWatchedTime = 0
-		let isSeeking = false
-
 		plyrSource.on('ready', () => {
 			if (plyrSource.source === video.source) {
 				plyrSource.embed.seekTo(video.watch_time, true)

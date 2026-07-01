@@ -2,7 +2,7 @@
 	<Dialog
 		v-model="show"
 		:options="{
-			title: chapterDetail ? __('Edit Chapter') : __('Add Chapter'),
+			title: chapterDetail ? __('Edit Session') : __('Add Session'),
 			size: 'lg',
 			actions: [
 				{
