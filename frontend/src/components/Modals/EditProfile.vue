@@ -30,7 +30,6 @@
 							<Uploader
 								v-model="profile.image"
 								:label="__('Profile Image')"
-								:required="true"
 								shape="circle"
 							/>
 
@@ -58,18 +57,7 @@
 						</div>
 					</div>
 					<div class="space-y-4">
-						<FormControl
-							v-model="profile.open_to"
-							type="select"
-							:options="[' ', 'Work', 'Hiring']"
-							:label="__('Open to')"
-							:placeholder="__('Looking for new work or hiring talent?')"
-						/>
-						<Link
-							:label="__('Language')"
-							v-model="profile.language"
-							doctype="Language"
-						/>
+						<!-- #14: Language and "Open to" fields removed from the profile editor. -->
 						<div>
 							<div class="mb-1.5 text-sm text-ink-gray-5">
 								{{ __('Bio') }}
@@ -100,11 +88,9 @@ import {
 } from 'frappe-ui'
 import { ref, reactive, watch } from 'vue'
 import { sanitizeHTML } from '@/utils'
-import Link from '@/components/Controls/Link.vue'
 
 const show = defineModel()
 const reloadProfile = defineModel('reloadProfile')
-const hasLanguageChanged = ref(false)
 const isDirty = ref(false)
 
 const props = defineProps({
@@ -120,7 +106,6 @@ const profile = reactive({
 	headline: '',
 	bio: '',
 	image: '',
-	open_to: '',
 	linkedin: '',
 	github: '',
 	twitter: '',
@@ -147,7 +132,7 @@ const validateMandatoryFields = () => {
 	let missingFields = []
 	if (!profile.first_name) missingFields.push(__('First Name'))
 	if (!profile.last_name) missingFields.push(__('Last Name'))
-	if (!profile.image) missingFields.push(__('Profile Image'))
+	// #10: Profile Image is no longer mandatory.
 	if (missingFields.length) {
 		toast.error(
 			__('Please fill the mandatory fields: {0}').format(
@@ -169,10 +154,6 @@ const saveProfile = () => {
 			onSuccess() {
 				show.value = false
 				reloadProfile.value.reload()
-				if (hasLanguageChanged.value) {
-					hasLanguageChanged.value = false
-					window.location.reload()
-				}
 			},
 			onError(err) {
 				toast.error(err.messages?.[0] || err)
@@ -209,23 +190,12 @@ watch(
 			profile.first_name = newVal.first_name
 			profile.last_name = newVal.last_name
 			profile.headline = newVal.headline
-			profile.language = newVal.language
 			profile.bio = newVal.bio
-			profile.open_to = newVal.open_to
 			profile.linkedin = newVal.linkedin
 			profile.github = newVal.github
 			profile.twitter = newVal.twitter
 			profile.image = newVal.user_image
 			isDirty.value = false
-		}
-	}
-)
-
-watch(
-	() => profile.language,
-	() => {
-		if (profile.language !== props.profile.data.language) {
-			hasLanguageChanged.value = true
 		}
 	}
 )

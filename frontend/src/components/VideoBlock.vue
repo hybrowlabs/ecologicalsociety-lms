@@ -24,16 +24,24 @@
 				@timeupdate="updateTime"
 				@ended="videoEnded"
 				@click="togglePlay"
+				@play="playing = true"
+				@pause="playing = false"
+				@volumechange="onVolumeChange"
 				oncontextmenu="return false"
 				class="rounded-md border border-gray-100 cursor-pointer"
 				ref="videoRef"
 				:src="fileURL"
 				:type="type"
 			></video>
+			<!-- #31: single centre overlay that stays in sync with the player
+			     state - shows Play when paused (always) and Pause when playing
+			     (on hover); clicking it toggles playback. -->
 			<div
-				v-if="!playing"
 				class="absolute inset-0 flex items-center justify-center cursor-pointer"
-				@click="playVideo"
+				:class="{
+					'opacity-0 group-hover:opacity-100 transition-opacity': playing,
+				}"
+				@click="togglePlay"
 			>
 				<div
 					class="rounded-full p-4 ps-4.5"
@@ -45,7 +53,8 @@
 						);
 					"
 				>
-					<Play />
+					<Play v-if="!playing" />
+					<Pause v-else class="size-6 text-ink-white" />
 				</div>
 			</div>
 			<div
@@ -94,16 +103,30 @@
 					<Button>{{ playbackSpeedLabel }}</Button>
 				</Dropdown>
 
-				<Button
-					variant="ghost"
-					@click="toggleMute"
-					class="hover:bg-transparent"
-				>
-					<template #icon>
-						<Volume2 v-if="!muted" class="size-5 text-ink-white" />
-						<VolumeX v-else class="size-5 text-ink-white" />
-					</template>
-				</Button>
+				<!-- #1 / #30: volume slider + smart mute (mute keeps last level and
+				     restores it on unmute, preventing accidental permanent mute). -->
+				<div class="flex items-center gap-x-1">
+					<Button
+						variant="ghost"
+						@click="toggleMute"
+						class="hover:bg-transparent"
+					>
+						<template #icon>
+							<Volume2 v-if="!muted" class="size-5 text-ink-white" />
+							<VolumeX v-else class="size-5 text-ink-white" />
+						</template>
+					</Button>
+					<input
+						type="range"
+						min="0"
+						max="1"
+						step="0.05"
+						v-model.number="volume"
+						@input="changeVolume"
+						class="volume-slider h-1 w-16"
+						:aria-label="__('Volume')"
+					/>
+				</div>
 				<Button
 					variant="ghost"
 					@click="toggleFullscreen"
@@ -158,7 +181,7 @@
 <script setup>
 import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
 import { Pause, Maximize, Volume2, VolumeX } from 'lucide-vue-next'
-import { Button, Dialog, Dropdown } from 'frappe-ui'
+import { Button, Dialog, Dropdown, call } from 'frappe-ui'
 import { formatSeconds, formatTimestamp } from '@/utils'
 import { useSettings } from '@/stores/settings'
 import Play from '@/components/Icons/Play.vue'
@@ -170,6 +193,8 @@ let playing = ref(false)
 let currentTime = ref(0)
 let duration = ref(0)
 let muted = ref(false)
+let volume = ref(1)
+const previousVolume = ref(1)
 const showQuizModal = ref(false)
 const showQuiz = ref(false)
 const showQuizLoader = ref(false)
@@ -211,12 +236,74 @@ const props = defineProps({
 	},
 })
 
+// #2: resume playback position for the native player. Lesson context is set on
+// the window by Lesson.vue since this component is rendered inside EditorJS
+// content without props.
+const lessonContext = () =>
+	(typeof window !== 'undefined' && window.__esLessonContext) || null
+
+const restorePosition = async () => {
+	const ctx = lessonContext()
+	if (!ctx || !ctx.lesson || !props.readOnly) return
+	try {
+		const pos = await call(
+			'ecological_society.video_progress.get_video_position',
+			{ lesson: ctx.lesson, source: props.file }
+		)
+		if (
+			pos &&
+			pos > 3 &&
+			videoRef.value &&
+			(!videoRef.value.duration || pos < videoRef.value.duration - 5)
+		) {
+			videoRef.value.currentTime = pos
+			currentTime.value = pos
+			updateNextQuiz()
+		}
+	} catch (e) {
+		/* no saved position */
+	}
+}
+
+let lastSavedPosition = 0
+const savePosition = () => {
+	const ctx = lessonContext()
+	if (!ctx || !ctx.lesson || !props.readOnly || !videoRef.value) return
+	const t = videoRef.value.currentTime || 0
+	if (t <= 0) return
+	call('ecological_society.video_progress.save_video_position', {
+		lesson: ctx.lesson,
+		source: props.file,
+		position: t,
+		course: ctx.course,
+	}).catch(() => {})
+}
+
 onMounted(() => {
 	updateCurrentTime()
 	updateNextQuiz()
 	if (videoRef.value) {
 		videoRef.value.playbackRate = 1
+		videoRef.value.addEventListener('loadedmetadata', restorePosition, {
+			once: true,
+		})
+		videoRef.value.addEventListener('timeupdate', () => {
+			const t = videoRef.value?.currentTime || 0
+			if (t - lastSavedPosition >= 5) {
+				lastSavedPosition = t
+				savePosition()
+			}
+		})
+		videoRef.value.addEventListener('pause', savePosition)
 	}
+	window.addEventListener('pagehide', savePosition)
+	window.addEventListener('beforeunload', savePosition)
+})
+
+onBeforeUnmount(() => {
+	savePosition()
+	window.removeEventListener('pagehide', savePosition)
+	window.removeEventListener('beforeunload', savePosition)
 })
 
 const updateCurrentTime = () => {
@@ -311,8 +398,34 @@ const videoEnded = () => {
 }
 
 const toggleMute = () => {
-	videoRef.value.muted = !videoRef.value.muted
+	if (!videoRef.value) return
+	if (videoRef.value.muted || videoRef.value.volume === 0) {
+		// Unmute and restore the previous audible level (#30: no accidental
+		// permanent mute).
+		const restore = previousVolume.value > 0 ? previousVolume.value : 1
+		videoRef.value.muted = false
+		videoRef.value.volume = restore
+		volume.value = restore
+	} else {
+		previousVolume.value = videoRef.value.volume
+		videoRef.value.muted = true
+	}
 	muted.value = videoRef.value.muted
+}
+
+const changeVolume = () => {
+	if (!videoRef.value) return
+	videoRef.value.volume = volume.value
+	// Dragging the slider to a non-zero level implicitly unmutes.
+	videoRef.value.muted = volume.value === 0
+	if (volume.value > 0) previousVolume.value = volume.value
+}
+
+// Keep the UI in sync when volume/mute changes for any reason (#30/#31).
+const onVolumeChange = () => {
+	if (!videoRef.value) return
+	muted.value = videoRef.value.muted || videoRef.value.volume === 0
+	volume.value = videoRef.value.muted ? 0 : videoRef.value.volume
 }
 
 const changeCurrentTime = () => {
@@ -378,6 +491,34 @@ iframe {
 	appearance: none;
 	border-radius: 10px;
 	background-color: theme('colors.gray.600');
+	cursor: pointer;
+}
+
+.volume-slider {
+	-webkit-appearance: none;
+	appearance: none;
+	border-radius: 10px;
+	background-color: theme('colors.gray.400');
+	cursor: pointer;
+	accent-color: theme('colors.white');
+}
+
+.volume-slider::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background-color: theme('colors.white');
+	cursor: pointer;
+}
+
+.volume-slider::-moz-range-thumb {
+	width: 10px;
+	height: 10px;
+	border: none;
+	border-radius: 50%;
+	background-color: theme('colors.white');
 	cursor: pointer;
 }
 

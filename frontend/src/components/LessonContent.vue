@@ -95,7 +95,13 @@ const cleanIframeHTML = (html) => {
 		txt.innerHTML = html
 		decoded = txt.value
 	}
-	decoded = decoded.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
+	// Only unwrap anchors that WRAP an embed/iframe (some paste sources wrap the
+	// player in a link). Do NOT strip ordinary text hyperlinks - those are valid
+	// "further reading / viewing" links and must stay clickable.
+	decoded = decoded.replace(
+		/<a\b[^>]*>\s*(<iframe[\s\S]*?<\/iframe>)\s*<\/a>/gi,
+		'$1'
+	)
 
 	if (decoded.includes('youtube.com/embed/')) {
 		const match = decoded.match(/src="([^"]+youtube\.com\/embed\/[^"]+)"/i)

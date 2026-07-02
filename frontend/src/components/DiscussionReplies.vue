@@ -26,29 +26,44 @@
 							{{ timeAgo(reply.creation) }}
 						</span>
 					</div>
-					<Dropdown
+					<!-- The author can edit or delete their own reply (explicit,
+					     obvious controls). -->
+					<div
 						v-if="
 							user.data.name == reply.owner && !reply.editable && !readOnlyMode
 						"
-						:options="[
-							{
-								label: __('Edit'),
-								onClick() {
-									reply.editable = true
-								},
-							},
-							{
-								label: __('Delete'),
-								onClick() {
-									deleteReply(reply)
-								},
-							},
-						]"
+						class="flex items-center gap-x-1"
 					>
-						<template v-slot="{ open }">
-							<MoreHorizontal class="w-4 h-4 stroke-1.5 cursor-pointer" />
+						<Button
+							variant="ghost"
+							:label="__('Edit')"
+							@click="reply.editable = true"
+						>
+							<template #icon>
+								<Pencil class="w-4 h-4" />
+							</template>
+						</Button>
+						<Button
+							variant="ghost"
+							:label="__('Delete')"
+							@click="deleteReply(reply)"
+						>
+							<template #icon>
+								<Trash2 class="w-4 h-4 text-ink-red-3" />
+							</template>
+						</Button>
+					</div>
+					<!-- #8: moderators can remove someone else's reply. -->
+					<Button
+						v-else-if="canModerate && user.data.name != reply.owner && !readOnlyMode"
+						variant="ghost"
+						:label="__('Remove')"
+						@click="moderatorDeleteReply(reply)"
+					>
+						<template #icon>
+							<Trash2 class="w-4 h-4 text-ink-red-3" />
 						</template>
-					</Dropdown>
+					</Button>
 					<div v-if="reply.editable">
 						<Button variant="ghost" @click="postEdited(reply)">
 							{{ __('Post') }}
@@ -83,7 +98,28 @@
 			editorClass="ProseMirror prose prose-table:table-fixed prose-td:p-2 prose-th:p-2 prose-td:border prose-th:border prose-td:border-outline-gray-2 prose-th:border-outline-gray-2 prose-td:relative prose-th:relative prose-th:bg-surface-gray-2 prose-sm max-w-none border border-outline-gray-2 rounded-b-md min-h-[7rem] py-1 px-2"
 		/>
 		<div v-if="!readOnlyMode" class="flex justify-between mt-2">
-			<span> </span>
+			<!-- #25: emoji support -->
+			<div class="relative">
+				<Button variant="ghost" @click="showEmoji = !showEmoji">
+					<template #icon>
+						<Smile class="size-4" />
+					</template>
+				</Button>
+				<div
+					v-if="showEmoji"
+					class="absolute z-10 bottom-full mb-2 start-0 bg-surface-white border rounded-md shadow-lg p-2 grid grid-cols-8 gap-1 w-64"
+				>
+					<button
+						v-for="e in emojis"
+						:key="e"
+						type="button"
+						class="text-lg leading-none p-1 hover:bg-surface-gray-2 rounded"
+						@click="insertEmoji(e)"
+					>
+						{{ e }}
+					</button>
+				</div>
+			</div>
 			<Button @click="postReply()">
 				<span>
 					{{ __('Post') }}
@@ -98,23 +134,34 @@ import {
 	createResource,
 	TextEditor,
 	Button,
-	Dropdown,
 	toast,
 } from 'frappe-ui'
 import { timeAgo } from '@/utils'
 import UserAvatar from '@/components/UserAvatar.vue'
-import { ChevronLeft, MoreHorizontal } from 'lucide-vue-next'
+import { ChevronLeft, Pencil, Trash2, Smile } from 'lucide-vue-next'
 import { ref, inject, onMounted, onUnmounted } from 'vue'
 import { useTelemetry } from 'frappe-ui/frappe'
 
 const showTopics = defineModel('showTopics')
 const newReply = ref('')
+// #25: emoji picker
+const showEmoji = ref(false)
+const emojis = [
+	'😀', '😁', '😂', '🤣', '😊', '😍', '😎', '🤔',
+	'👍', '👏', '🙌', '🙏', '💪', '🔥', '✨', '🎉',
+	'✅', '❌', '❤️', '💡', '📚', '📝', '⭐', '🚀',
+]
+const insertEmoji = (emoji) => {
+	newReply.value = (newReply.value || '') + emoji
+	showEmoji.value = false
+}
 const socket = inject('$socket')
 const user = inject('$user')
 const allUsers = inject('$allUsers')
 const mentionUsers = ref([])
 const renderEditor = ref(false)
 const readOnlyMode = window.read_only_mode
+const canModerate = ref(false)
 const { capture } = useTelemetry()
 
 const props = defineProps({
@@ -139,6 +186,9 @@ onMounted(() => {
 		replies.reload()
 	})
 	fetchMentionUsers()
+	call('ecological_society.discussions.can_moderate_discussions')
+		.then((v) => (canModerate.value = !!v))
+		.catch(() => {})
 })
 
 const replies = createResource({
@@ -242,6 +292,20 @@ const deleteReply = (reply) => {
 			toast.error(err.messages?.[0] || err)
 			console.error(err)
 		})
+}
+
+// #8: moderator removal of another user's reply (server enforces permission).
+const moderatorDeleteReply = (reply) => {
+	call('ecological_society.discussions.delete_discussion_reply', {
+		reply: reply.name,
+	})
+		.then(() => {
+			toast.success(__('Reply removed'))
+			replies.reload()
+		})
+		.catch((err) =>
+			toast.error(err.messages?.[0] || __('Could not remove the reply'))
+		)
 }
 
 onUnmounted(() => {

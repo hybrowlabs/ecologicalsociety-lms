@@ -62,8 +62,9 @@
 						>
 							{{ profile.data.full_name.charAt(0).toUpperCase() }}
 						</div>
+						<!-- #14: "Open to Work/Hiring" indicator hidden. -->
 						<Tooltip
-							v-if="profile.data.open_to"
+							v-if="false"
 							:text="
 								profile.data.open_to === 'Work'
 									? __('Open to Work')

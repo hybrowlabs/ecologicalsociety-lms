@@ -18,29 +18,43 @@
 		<div v-if="showTopics" v-for="(topic, index) in topics.data">
 			<div
 				@click="showReplies(topic)"
-				class="flex items-center cursor-pointer py-5 w-full"
+				class="flex items-center justify-between cursor-pointer py-5 w-full"
 				:class="{ 'border-b': index + 1 != topics.data.length }"
 			>
-				<UserAvatar :user="topic.user" size="2xl" class="me-4" />
-				<div>
-					<div class="text-lg font-semibold mb-1 text-ink-gray-7">
-						{{ topic.title }}
-					</div>
-					<div
-						v-if="topic.assigned_instructor_name"
-						class="text-xs text-ink-gray-5 mb-1"
-					>
-						{{ __('Assigned to') }}: {{ topic.assigned_instructor_name }}
-					</div>
-					<div class="flex items-center text-ink-gray-5">
-						<span>
-							{{ topic.user.full_name }}
-						</span>
-						<span class="text-sm ms-3">
-							{{ timeAgo(topic.creation) }}
-						</span>
+				<div class="flex items-center">
+					<UserAvatar :user="topic.user" size="2xl" class="me-4" />
+					<div>
+						<div class="text-lg font-semibold mb-1 text-ink-gray-7">
+							{{ topic.title }}
+						</div>
+						<div
+							v-if="topic.assigned_instructor_name"
+							class="text-xs text-ink-gray-5 mb-1"
+						>
+							{{ __('Assigned to') }}: {{ topic.assigned_instructor_name }}
+						</div>
+						<div class="flex items-center text-ink-gray-5">
+							<span>
+								{{ topic.user.full_name }}
+							</span>
+							<span class="text-sm ms-3">
+								{{ timeAgo(topic.creation) }}
+							</span>
+						</div>
 					</div>
 				</div>
+				<!-- #8: the author can delete their own question; moderators can
+				     remove anyone's. -->
+				<Button
+					v-if="canModerate || user.data?.name === topic.owner"
+					variant="ghost"
+					:label="user.data?.name === topic.owner ? __('Delete') : __('Remove')"
+					@click.stop="removeTopic(topic)"
+				>
+					<template #icon>
+						<Trash2 class="size-4 text-ink-red-3" />
+					</template>
+				</Button>
 			</div>
 		</div>
 		<div v-else>
@@ -77,13 +91,13 @@
 	/>
 </template>
 <script setup>
-import { createResource, Button } from 'frappe-ui'
+import { createResource, Button, call, toast } from 'frappe-ui'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { singularize, timeAgo } from '@/utils'
-import { ref, onMounted, inject, onUnmounted } from 'vue'
+import { ref, onMounted, inject, onUnmounted, watch } from 'vue'
 import DiscussionReplies from '@/components/DiscussionReplies.vue'
 import DiscussionModal from '@/components/Modals/DiscussionModal.vue'
-import { MessageSquareText, Plus } from 'lucide-vue-next'
+import { MessageSquareText, Plus, Trash2 } from 'lucide-vue-next'
 import { getScrollContainer } from '@/utils/scrollContainer'
 
 const showTopics = ref(true)
@@ -92,6 +106,7 @@ const socket = inject('$socket')
 const user = inject('$user')
 const showTopicModal = ref(false)
 const readOnlyMode = window.read_only_mode
+const canModerate = ref(false)
 
 const props = defineProps({
 	title: {
@@ -130,10 +145,21 @@ const props = defineProps({
 		type: String,
 		default: '',
 	},
+	// #12: deep-link - open this specific topic (by name) when provided.
+	openTopicName: {
+		type: String,
+		default: '',
+	},
 })
 
 onMounted(() => {
-	if (user.data) topics.reload()
+	if (user.data) topics.reload().then(openTargetTopic)
+
+	// #8: check moderation permission (System Manager / Moderator / Course
+	// Creator / instructor); server still enforces on delete.
+	call('ecological_society.discussions.can_moderate_discussions')
+		.then((v) => (canModerate.value = !!v))
+		.catch(() => {})
 
 	socket.on('new_discussion_topic', (data) => {
 		topics.refresh()
@@ -145,6 +171,27 @@ onMounted(() => {
 		}, 100)
 	}
 })
+
+const openTargetTopic = () => {
+	if (!props.openTopicName || !Array.isArray(topics.data)) return
+	const target = topics.data.find((t) => t.name === props.openTopicName)
+	if (target) showReplies(target)
+}
+
+watch(() => props.openTopicName, openTargetTopic)
+
+const removeTopic = (topic) => {
+	call('ecological_society.discussions.delete_discussion_topic', {
+		topic: topic.name,
+	})
+		.then(() => {
+			toast.success(__('Question removed'))
+			topics.reload()
+		})
+		.catch((err) =>
+			toast.error(err.messages?.[0] || __('Could not remove the question'))
+		)
+}
 
 const scrollToEnd = () => {
 	let scrollContainer = getScrollContainer()

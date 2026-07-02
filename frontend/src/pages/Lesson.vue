@@ -2,10 +2,11 @@
 	<div v-if="lesson.data" class="">
 		<header
 			v-if="!embedded"
-			class="sticky top-0 z-10 flex items-center justify-between border-b bg-surface-white px-3 py-2.5 sm:px-5"
+			class="sticky top-0 z-10 flex flex-wrap items-center gap-y-2 justify-between border-b bg-surface-white px-3 py-2.5 sm:px-5"
 		>
 			<Breadcrumbs class="h-7" :items="breadcrumbs" />
-			<div class="flex items-center gap-x-2">
+			<!-- #29: allow the control buttons to wrap instead of overflowing on mobile. -->
+			<div class="flex flex-wrap items-center justify-end gap-2">
 				<Tooltip v-if="canGoZen()" :text="__('Zen Mode')">
 					<Button @click="goFullScreen()">
 						<template #icon>
@@ -98,9 +99,10 @@
 			<div
 				v-else
 				ref="lessonContainer"
-				class="bg-surface-white"
 				:class="{
 					'overflow-y-auto': zenModeEnabled,
+					'bg-surface-white': !(zenModeEnabled && zenDark),
+					'zen-dark': zenModeEnabled && zenDark,
 				}"
 			>
 				<div
@@ -114,6 +116,13 @@
 							class="flex flex-col space-y-3 md:space-y-0 md:flex-row md:items-center justify-between"
 						>
 							<div class="flex flex-col">
+								<!-- #23: Zen Mode branding -->
+								<span
+									v-if="zenModeEnabled"
+									class="mb-2 inline-flex items-center gap-x-1 w-fit rounded-full bg-ink-gray-9 text-ink-white px-2.5 py-0.5 text-xs font-semibold tracking-wide"
+								>
+									<Focus class="size-3" /> {{ __('Zen Mode') }}
+								</span>
 								<div class="text-3xl font-semibold text-ink-gray-9">
 									{{ lesson.data.title }}
 								</div>
@@ -140,6 +149,15 @@
 								v-if="zenModeEnabled"
 								class="flex items-center gap-x-2 mt-2 md:mt-0"
 							>
+								<!-- #23: optional full dark theme toggle -->
+								<Tooltip :text="zenDark ? __('Light theme') : __('Dark theme')">
+									<Button @click="zenDark = !zenDark">
+										<template #icon>
+											<Sun v-if="zenDark" class="w-4 h-4 stroke-1.5" />
+											<Moon v-else class="w-4 h-4 stroke-1.5" />
+										</template>
+									</Button>
+								</Tooltip>
 								<Button @click="showDiscussionsInZenMode()">
 									<template #icon>
 										<MessageCircleQuestion class="w-4 h-4 stroke-1.5" />
@@ -185,6 +203,32 @@
 								v-if="lesson.data?.instructors"
 								:instructors="lesson.data.instructors"
 							/>
+						</div>
+
+						<!-- #26: Note-taking panel moved ABOVE the lesson content /
+						     quiz section so learners can jot notes before the quiz. -->
+						<div v-if="canTakeNotes" class="mt-6 border rounded-md">
+							<button
+								type="button"
+								class="flex items-center justify-between w-full px-4 py-2.5 text-sm font-medium text-ink-gray-7"
+								@click="notesPanelOpen = !notesPanelOpen"
+							>
+								<span class="flex items-center gap-x-2">
+									<NotebookPen class="size-4" />
+									{{ __('My Notes') }}
+								</span>
+								<ChevronDown
+									class="size-4 transition-transform"
+									:class="{ 'rotate-180': notesPanelOpen }"
+								/>
+							</button>
+							<div v-show="notesPanelOpen" class="px-4 pb-4">
+								<Notes
+									:lesson="lesson.data?.name"
+									v-model:notes="notes"
+									@updateNotes="updateNotes"
+								/>
+							</div>
 						</div>
 
 						<div
@@ -240,12 +284,7 @@
 							v-model="currentTab"
 							class="w-fit mb-10"
 						/>
-						<Notes
-							v-if="currentTab === 'Notes'"
-							:lesson="lesson.data?.name"
-							v-model:notes="notes"
-							@updateNotes="updateNotes"
-						/>
+						<!-- #26: Notes moved above the content; this panel is Questions only. -->
 						<Discussions
 							v-if="currentTab === 'Community' && allowDiscussions"
 							:title="'Questions'"
@@ -253,6 +292,7 @@
 							:docname="lesson.data.name"
 							:lessonName="lesson.data.name"
 							:allowPost="Boolean(lesson.data.membership && !embedded)"
+							:openTopicName="deepLinkTopic"
 							:key="lesson.data.name"
 							:emptyStateText="
 								__('Ask a question to get help from the community.')
@@ -313,11 +353,15 @@ import { useRouter, useRoute } from 'vue-router'
 import {
 	ChevronLeft,
 	ChevronRight,
+	ChevronDown,
 	LockKeyholeIcon,
 	LogIn,
 	Focus,
 	Info,
 	MessageCircleQuestion,
+	Moon,
+	NotebookPen,
+	Sun,
 	TrendingUp,
 } from 'lucide-vue-next'
 import {
@@ -356,6 +400,8 @@ const instructorEditor = ref(null)
 const lessonProgress = ref(0)
 const lessonContainer = ref(null)
 const zenModeEnabled = ref(false)
+// #23: optional full dark theme while in Zen Mode.
+const zenDark = ref(false)
 const showStatsDialog = ref(false)
 const hasQuiz = ref(false)
 const discussionsContainer = ref(null)
@@ -366,6 +412,10 @@ const plyrSources = ref([])
 const showInlineMenu = ref(false)
 const currentTab = ref(null)
 const completedLesson = ref(null)
+// #12: topic to auto-open when arriving from a discussion notification deep-link.
+const deepLinkTopic = ref('')
+// #26: standalone notes panel (above the quiz) open state.
+const notesPanelOpen = ref(true)
 const settingsStore = useSettings()
 let timerInterval = null
 
@@ -409,6 +459,16 @@ defineExpose({
 
 onMounted(() => {
 	startTimer()
+	// #12: a discussion notification links to ...?tab=Questions&discussion=<topic>.
+	// Switch to the Questions tab and open that specific thread once loaded.
+	if (route.query.tab === 'Questions') {
+		deepLinkTopic.value = route.query.discussion || ''
+		nextTick(() => {
+			allowDiscussions.value = true
+			currentTab.value = 'Community'
+			scrollDiscussionsIntoView()
+		})
+	}
 	if (!props.embedded) sidebarStore.isSidebarCollapsed = true
 	document.addEventListener('fullscreenchange', attachFullscreenEvent)
 	window.addEventListener('message', handleIframeMessage)
@@ -432,6 +492,7 @@ const attachFullscreenEvent = () => {
 		allowDiscussions.value = false
 	} else {
 		zenModeEnabled.value = false
+		zenDark.value = false
 		// Ecological Society: keep Q&A discussions available on quiz lessons too
 		allowDiscussions.value = true
 	}
@@ -474,6 +535,9 @@ const setupLesson = (data) => {
 		})
 	}
 	lessonProgress.value = data.membership?.progress
+	// #2: expose lesson context so the native VideoBlock (rendered inside the
+	// EditorJS content, without props) can save/restore playback position.
+	window.__esLessonContext = { lesson: data.name, course: props.courseName }
 	if (data.content) editor.value = renderEditor('editor', data.content)
 	if (
 		data.instructor_content &&
@@ -621,6 +685,39 @@ const progress = createResource({
 		// for a refresh of the course resource.
 		if (name) emit('lesson-completed', name)
 		emit('progress-updated', data)
+		// #3: the following lesson may have just unlocked (sequential locking).
+		// Re-derive the next target so the "Next Lesson" button appears without
+		// a page refresh. Only when it was previously unavailable.
+		if (lesson.data && !lesson.data.next_unlocked && !lesson.data.next) {
+			nextTarget.reload()
+		}
+	},
+})
+
+// #3: derive the next *unlocked* lesson from the outline without reloading the
+// whole lesson (which would reset the just-shown quiz result). Sets the same
+// dot-format target ("chapter.lesson") the header button and switchLesson use.
+const nextTarget = createResource({
+	url: 'lms.lms.utils.get_course_outline',
+	makeParams() {
+		return { course: props.courseName, progress: true }
+	},
+	onSuccess(outline) {
+		const flat = []
+		;(outline || []).forEach((ch) =>
+			(ch.lessons || []).forEach((l) => flat.push(l))
+		)
+		const current = `${props.chapterNumber}-${props.lessonNumber}`
+		const idx = flat.findIndex((l) => l.number === current)
+		if (idx === -1) return
+		for (let i = idx + 1; i < flat.length; i++) {
+			if (!flat[i].is_locked) {
+				const [c, n] = String(flat[i].number).split('-')
+				lesson.data.next_unlocked = `${c}.${n}`
+				if (!lesson.data.next) lesson.data.next = `${c}.${n}`
+				break
+			}
+		}
 	},
 })
 
@@ -818,7 +915,10 @@ watch(
 const getPlyrSource = async () => {
 	await nextTick()
 	if (plyrSources.value.length == 0) {
-		plyrSources.value = await enablePlyr()
+		plyrSources.value = await enablePlyr({
+			lesson: lesson.data?.name,
+			course: props.courseName,
+		})
 		const enforceVideo = Number(
 			settingsStore.settings?.data?.enforce_video_completion ?? 0
 		)
@@ -985,6 +1085,11 @@ const isAdmin = computed(() => {
 	return user.data?.is_moderator || isInstructor
 })
 
+// #26: who sees the (moved) note-taking panel - enrolled learners, not admins.
+const canTakeNotes = computed(
+	() => !isAdmin.value && !props.embedded && !!lesson.data?.membership
+)
+
 const allowInstructorContent = () => {
 	if (window.read_only_mode) return false
 	return isAdmin.value
@@ -1095,18 +1200,11 @@ watch(
 				value: 'Community',
 			})
 		}
-		if (!isAdmin.value) {
-			newTabs.push({
-				label: __('Notes'),
-				value: 'Notes',
-			})
-		}
+		// #26: Notes are no longer a bottom tab (moved above the content).
 		tabs.value = newTabs
 
 		if (allowDiscussions.value) {
 			currentTab.value = 'Community'
-		} else if (!isAdmin.value) {
-			currentTab.value = 'Notes'
 		} else {
 			currentTab.value = null
 		}
@@ -1135,6 +1233,34 @@ usePageMeta(() => {
 
 .avatar-group .avatar {
 	transition: margin 0.1s ease-in-out;
+}
+
+/* #23: Zen Mode full dark theme */
+.zen-dark {
+	background-color: #0f172a;
+}
+.zen-dark,
+.zen-dark .text-ink-gray-9,
+.zen-dark .text-ink-gray-8,
+.zen-dark .text-ink-gray-7,
+.zen-dark .text-ink-gray-5 {
+	color: #e2e8f0 !important;
+}
+.zen-dark .prose,
+.zen-dark .ProseMirror {
+	color: #e2e8f0 !important;
+}
+.zen-dark .prose :where(h1, h2, h3, h4, h5, h6, strong) {
+	color: #f8fafc !important;
+}
+.zen-dark .border,
+.zen-dark .border-e,
+.zen-dark .border-t,
+.zen-dark .border-b {
+	border-color: #334155 !important;
+}
+.zen-dark .bg-surface-gray-2 {
+	background-color: #1e293b !important;
 }
 
 .lesson-content p {

@@ -117,6 +117,19 @@ export function htmlToText(html) {
 	return div.textContent || div.innerText || ''
 }
 
+// Plain video URLs (e.g. https://www.youtube.com/watch?v=...) must NOT be
+// auto-embedded on paste - they should stay as plain, clickable links for
+// "further viewing" material. Videos are embedded only via an explicit <iframe>
+// tag (converted to an embed block by the ecological_society content
+// normalizer). Returning `false` from pasteConfig is EditorJS's supported way
+// to disable a tool's paste substitution; render() still works for existing /
+// iframe-normalized embed blocks because prepare() still populates the services.
+class LinkFirstEmbed extends Embed {
+	static get pasteConfig() {
+		return false
+	}
+}
+
 export function getEditorTools() {
 	return {
 		header: {
@@ -163,7 +176,7 @@ export function getEditorTools() {
 			shortcut: 'CMD+SHIFT+M',
 		},
 		embed: {
-			class: Embed,
+			class: LinkFirstEmbed,
 			inlineToolbar: false,
 			config: {
 				services: {
@@ -850,7 +863,7 @@ export const canCreateCourse = () => {
 	)
 }
 
-export const enablePlyr = async () => {
+export const enablePlyr = async (context = {}) => {
 	await wait(500)
 
 	const players = []
@@ -859,15 +872,62 @@ export const enablePlyr = async () => {
 	if (videoElements.length === 0) return players
 
 	Array.from(videoElements).forEach((video) => {
-		setupPlyrForVideo(video, players)
+		setupPlyrForVideo(video, players, context)
 	})
 
 	return players
 }
 
+// #2: persist/restore playback position for embedded (Plyr) videos.
+const attachResume = (player, source, context) => {
+	if (!source || !context || !context.lesson) return
+	let lastSaved = 0
+	let restored = false
+
+	const save = () => {
+		const t = player.currentTime || 0
+		if (t <= 0) return
+		call('ecological_society.video_progress.save_video_position', {
+			lesson: context.lesson,
+			source,
+			position: t,
+			course: context.course,
+		}).catch(() => {})
+	}
+
+	player.on('ready', async () => {
+		if (restored) return
+		restored = true
+		try {
+			const pos = await call(
+				'ecological_society.video_progress.get_video_position',
+				{ lesson: context.lesson, source }
+			)
+			// Resume only if meaningfully into the video and not basically at the end.
+			if (pos && pos > 3 && (!player.duration || pos < player.duration - 5)) {
+				player.currentTime = pos
+			}
+		} catch (e) {
+			/* no saved position */
+		}
+	})
+
+	player.on('timeupdate', () => {
+		const t = player.currentTime || 0
+		if (t - lastSaved >= 5) {
+			lastSaved = t
+			save()
+		}
+	})
+	player.on('pause', save)
+	player.on('ended', save)
+	window.addEventListener('pagehide', save)
+	window.addEventListener('beforeunload', save)
+}
+
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const setupPlyrForVideo = (video, players) => {
+const setupPlyrForVideo = (video, players, context = {}) => {
 	// Skip if Plyr is already initialized on this element
 	if (video._plyrInitialized) return
 
@@ -917,6 +977,15 @@ const setupPlyrForVideo = (video, players) => {
 	const player = new Plyr(video, {
 		youtube: { noCookie: true },
 		controls: controls,
+		// #1 / #30: keep a real volume control, start audible (not muted), and
+		// persist the chosen level across lessons so a mute doesn't silently
+		// carry over. NOTE: on mobile browsers (esp. iOS) programmatic volume is
+		// ignored by the YouTube iframe - only mute/unmute + hardware volume
+		// work there; this is documented in the student guide.
+		volume: 1,
+		muted: false,
+		tooltips: { controls: true, seek: true },
+		storage: { enabled: true, key: 'plyr' },
 		listeners: {
 			seek: function customSeekBehavior(e) {
 				const current_time = player.currentTime
@@ -934,6 +1003,8 @@ const setupPlyrForVideo = (video, players) => {
 	})
 
 	video._plyrInitialized = true
+	// #2: resume from last position (source = the embed/YouTube id for this video).
+	attachResume(player, video.getAttribute('data-plyr-embed-id') || src, context)
 	players.push(player)
 }
 

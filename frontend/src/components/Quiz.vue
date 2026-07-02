@@ -139,7 +139,8 @@
 					<div v-if="questionDetails.data.type == 'Choices'" v-for="index in 4">
 						<label
 							v-if="questionDetails.data[`option_${index}`]"
-							class="flex items-center bg-surface-gray-3 rounded-md p-3 mt-4 w-full cursor-pointer focus:border-blue-600"
+							class="flex items-center rounded-md p-3 mt-4 w-full cursor-pointer focus:border-blue-600 border transition-colors"
+							:class="optionResultClass(index)"
 						>
 							<input
 								v-if="!showAnswers.length && !questionDetails.data.multiple"
@@ -396,21 +397,21 @@
 						<div v-for="index in 4" :key="index">
 							<div
 								v-if="questionsByName[question.question]?.[`option_${index}`]"
-								class="flex items-center justify-between rounded-md p-3 w-full border"
+								class="flex items-center justify-between rounded-md p-3 w-full border transition-colors"
 								:class="[
-									questionsByName[question.question]?.[`is_correct_${index}`] 
-										? 'bg-surface-green-1 border-emerald-200' 
+									questionsByName[question.question]?.[`is_correct_${index}`]
+										? 'bg-surface-green-2 border-green-500'
 										: 'bg-surface-gray-3 border-transparent'
 								]"
 							>
 								<div class="flex items-center gap-x-2">
 									<CheckCircle
 										v-if="questionsByName[question.question]?.[`is_correct_${index}`]"
-										class="w-4 h-4 text-ink-green-2 shrink-0"
+										class="w-4 h-4 text-ink-green-3 shrink-0"
 									/>
 									<span
-										class="text-ink-gray-9"
 										v-html="questionsByName[question.question]?.[`option_${index}`]"
+										:class="questionsByName[question.question]?.[`is_correct_${index}`] ? 'font-bold text-ink-green-3' : 'text-ink-gray-9'"
 									></span>
 								</div>
 								<Badge 
@@ -833,6 +834,19 @@ const getAnswers = () => {
 	}
 
 	return answers
+}
+
+// #6 / #18: color the option row by result once answers are revealed.
+// showAnswers[i]: 1 = selected & correct, 0 = selected & wrong, 2 = partial,
+// undefined = not selected. index here is 1-based.
+const optionResultClass = (index) => {
+	if (!showAnswers.length) return 'bg-surface-gray-3 border-transparent'
+	const status = showAnswers[index - 1]
+	if (status === 1)
+		return 'bg-surface-green-2 border-green-500 font-bold text-ink-green-3'
+	if (status === 2) return 'bg-surface-amber-1 border-amber-400 font-medium'
+	if (status === 0) return 'bg-surface-red-1 border-red-400 font-medium'
+	return 'bg-surface-gray-3 border-transparent'
 }
 
 const checkAnswer = () => {
