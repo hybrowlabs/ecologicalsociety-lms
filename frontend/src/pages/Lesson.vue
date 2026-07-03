@@ -46,7 +46,7 @@
 					}"
 				>
 					<Button>
-						{{ __('Back to Course') }}
+						{{ __('Course Home Page') }}
 					</Button>
 				</router-link>
 			</div>
@@ -205,32 +205,6 @@
 							/>
 						</div>
 
-						<!-- #26: Note-taking panel moved ABOVE the lesson content /
-						     quiz section so learners can jot notes before the quiz. -->
-						<div v-if="canTakeNotes" class="mt-6 border rounded-md">
-							<button
-								type="button"
-								class="flex items-center justify-between w-full px-4 py-2.5 text-sm font-medium text-ink-gray-7"
-								@click="notesPanelOpen = !notesPanelOpen"
-							>
-								<span class="flex items-center gap-x-2">
-									<NotebookPen class="size-4" />
-									{{ __('My Notes') }}
-								</span>
-								<ChevronDown
-									class="size-4 transition-transform"
-									:class="{ 'rotate-180': notesPanelOpen }"
-								/>
-							</button>
-							<div v-show="notesPanelOpen" class="px-4 pb-4">
-								<Notes
-									:lesson="lesson.data?.name"
-									v-model:notes="notes"
-									@updateNotes="updateNotes"
-								/>
-							</div>
-						</div>
-
 						<div
 							v-if="
 								lesson.data.instructor_content &&
@@ -271,6 +245,33 @@
 								:youtube="lesson.data.youtube"
 								:quizId="lesson.data.quiz_id"
 							/>
+						</div>
+
+						<!-- #28: Note-taking panel sits below the lesson content
+						     (video + body), above the quiz/assignment and the
+						     Questions panel. -->
+						<div v-if="canTakeNotes" class="mt-8 border rounded-md">
+							<button
+								type="button"
+								class="flex items-center justify-between w-full px-4 py-2.5 text-sm font-medium text-ink-gray-7"
+								@click="notesPanelOpen = !notesPanelOpen"
+							>
+								<span class="flex items-center gap-x-2">
+									<NotebookPen class="size-4" />
+									{{ __('My Notes') }}
+								</span>
+								<ChevronDown
+									class="size-4 transition-transform"
+									:class="{ 'rotate-180': notesPanelOpen }"
+								/>
+							</button>
+							<div v-show="notesPanelOpen" class="px-4 pb-4">
+								<Notes
+									:lesson="lesson.data?.name"
+									v-model:notes="notes"
+									@updateNotes="updateNotes"
+								/>
+							</div>
 						</div>
 					</div>
 					<div
@@ -476,6 +477,9 @@ onMounted(() => {
 		if (data.course === props.courseName) {
 			lessonProgress.value = data.progress
 			emit('progress-updated', data.progress)
+			if (data.lesson === lesson.data?.name) {
+				nextTarget.reload()
+			}
 		}
 	})
 })

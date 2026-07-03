@@ -43,9 +43,21 @@
 						>
 							{{ review.owner_details.full_name }}
 						</router-link>
-						<span class="text-ink-gray-5 shrink-0">
-							{{ formatReviewDate(review.creation) }}
-						</span>
+						<div class="flex items-center gap-x-3 shrink-0">
+							<span class="text-ink-gray-5">
+								{{ formatReviewDate(review.creation) }}
+							</span>
+							<!-- Staff / course instructors can remove a review. -->
+							<button
+								v-if="canModerate"
+								type="button"
+								:title="__('Delete review')"
+								class="text-ink-gray-5 hover:text-ink-red-3 transition-colors"
+								@click="confirmDeleteReview(review)"
+							>
+								<Trash2 class="size-4 stroke-1.5" />
+							</button>
+						</div>
 					</div>
 					<div class="flex gap-1 mt-2">
 						<Star
@@ -92,9 +104,16 @@
 </template>
 
 <script setup lang="ts">
-import { Star } from 'lucide-vue-next'
-import { createResource, Button } from 'frappe-ui'
-import { computed, inject, reactive, ref, watch } from 'vue'
+import { Star, Trash2 } from 'lucide-vue-next'
+import { createResource, Button, call, toast } from 'frappe-ui'
+import {
+	computed,
+	getCurrentInstance,
+	inject,
+	reactive,
+	ref,
+	watch,
+} from 'vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { formatRating } from '@/utils'
 import ReviewModal from '@/components/Modals/ReviewModal.vue'
@@ -108,6 +127,23 @@ import type {
 
 const user = inject<SessionUser>('$user')!
 const dayjs = inject<typeof dayjsType>('$dayjs')!
+
+type DialogFn = (opts: {
+	title: string
+	message: string
+	actions: {
+		label: string
+		theme?: string
+		variant?: string
+		onClick: (close: () => void) => void
+	}[]
+}) => void
+const { $dialog } = getCurrentInstance()!.appContext.config
+	.globalProperties as unknown as { $dialog: DialogFn }
+
+// Only moderators / admins get the delete affordance in the UI; the backend
+// re-checks (staff or the course's own instructors) before deleting.
+const canModerate = computed<boolean>(() => Boolean(user.data?.is_moderator))
 
 const PREVIEW_LIMIT = 4
 const CLAMP_THRESHOLD = 220
@@ -185,5 +221,36 @@ function formatReviewDate(date: string) {
 
 function openReviewModal() {
 	showReviewModal.value = true
+}
+
+function confirmDeleteReview(review: CourseReviewInfo) {
+	const author = review.owner_details?.full_name || __('this user')
+	$dialog({
+		title: __('Delete this review?'),
+		message: __(
+			"This permanently removes {0}'s rating and review from the course. This can't be undone."
+		).format(author),
+		actions: [
+			{
+				label: __('Delete'),
+				theme: 'red',
+				variant: 'solid',
+				onClick(close) {
+					call('ecological_society.overrides.delete_course_review', {
+						review: review.name,
+					})
+						.then(() => {
+							toast.success(__('Review deleted'))
+							reviews.reload()
+							hasReviewed.reload()
+						})
+						.catch((e: { messages?: string[] }) => {
+							toast.error(e?.messages?.[0] || __('Could not delete review'))
+						})
+					close()
+				},
+			},
+		],
+	})
 }
 </script>

@@ -3,9 +3,9 @@
 		<div class="min-w-0 flex-1 text-start">
 			<div
 				class="truncate text-base font-medium leading-5 text-ink-gray-9"
-				:title="chapter.title"
+				:title="displayTitle"
 			>
-				{{ chapter.title }}
+				{{ displayTitle }}
 			</div>
 		</div>
 	</div>
@@ -26,13 +26,31 @@
 			>
 				<div
 					class="truncate text-base font-medium leading-5 text-ink-gray-9"
-					:title="chapter.title"
+					:title="displayTitle"
 				>
-					{{ chapter.title }}
+					{{ displayTitle }}
 				</div>
+				<!-- Instructor under the session title. When we know the
+				     instructor's username, make it open their profile so a
+				     student can read about them. @click.stop keeps the click
+				     from toggling the chapter's disclosure. -->
 				<div
 					v-if="chapter.instructor_name"
 					class="text-xs text-ink-gray-5 mt-0.5 truncate"
+					:class="
+						chapter.instructor_username
+							? 'cursor-pointer hover:text-ink-gray-9 hover:underline'
+							: ''
+					"
+					:title="
+						chapter.instructor_username
+							? __('View instructor profile')
+							: undefined
+					"
+					@click.stop="
+						chapter.instructor_username &&
+							openInstructorProfile(chapter.instructor_username)
+					"
 				>
 					{{ chapter.instructor_name }}
 				</div>
@@ -185,6 +203,7 @@ const props = withDefaults(
 		selectedLessonNumber?: string
 		chaptersOnly?: boolean
 		isEnrolled?: boolean
+		relabelChapters?: boolean
 	}>(),
 	{
 		allowEdit: false,
@@ -193,7 +212,18 @@ const props = withDefaults(
 		selectedLessonNumber: '',
 		chaptersOnly: false,
 		isEnrolled: true,
+		relabelChapters: false,
 	}
+)
+
+// Ecological Society: on the Course Home outline, present chapters as
+// "Session N" without renaming the stored data. Only a leading "Chapter"
+// token is swapped, so author-named chapters (e.g. "Test Integration") are
+// left untouched. Scoped via a prop so the in-lesson sidebar keeps "Chapter".
+const displayTitle = computed<string>(() =>
+	props.relabelChapters
+		? props.chapter.title.replace(/^Chapter\b/i, 'Session')
+		: props.chapter.title
 )
 
 // Lock all lessons for unenrolled non-editor users
@@ -264,6 +294,10 @@ function addLesson() {
 		chapter: props.chapter,
 		lessonIdx: (props.chapter.lessons?.length ?? 0) + 1,
 	})
+}
+
+function openInstructorProfile(username: string) {
+	router.push({ name: 'Profile', params: { username } })
 }
 
 function redirectToChapter() {

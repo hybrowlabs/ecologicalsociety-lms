@@ -87,6 +87,7 @@ export interface OutlineChapter {
 	lessons?: OutlineLesson[]
 	instructor?: string | null
 	instructor_name?: string | null
+	instructor_username?: string | null
 }
 
 export interface CertificationInfo {

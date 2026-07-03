@@ -20,14 +20,7 @@
 									{{ __('Students') }}</span
 								>
 							</div>
-							<span class="lucide-dot size-5 text-ink-gray-7" />
 						</template>
-						<div
-							v-if="course.data.instructors?.length"
-							class="flex items-center"
-						>
-							<CourseInstructors :instructors="course.data.instructors" />
-						</div>
 					</div>
 					<div v-if="course.data.tags" class="flex flex-wrap gap-2">
 						<Badge
@@ -90,6 +83,7 @@
 							:editorLinks="isCourseAdmin"
 							:isEnrolled="Boolean(course.data.membership) || isCourseAdmin"
 							:chaptersOnly="!course.data.membership && !isCourseAdmin"
+							:relabelChapters="true"
 						/>
 					</div>
 				</section>
@@ -123,7 +117,6 @@ import CourseCardOverlay from '@/components/CourseCardOverlay.vue'
 import CourseOutline from '@/components/CourseOutline.vue'
 import SkeletonLoader from '@/components/SkeletonLoader.vue'
 import CourseReviews from '@/components/CourseReviews.vue'
-import CourseInstructors from '@/components/CourseInstructors.vue'
 import CourseCreatorCard from '@/components/CourseCreatorCard.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import RelatedCourses from '@/components/RelatedCourses.vue'
@@ -166,8 +159,9 @@ watch(
 const outlineStats = computed(() => {
 	const chapters = outline.data || []
 	if (!chapters.length) return ''
+	// Ecological Society: Course Home presents chapters as "sessions".
 	return `${chapters.length} ${
-		chapters.length === 1 ? __('chapter') : __('chapters')
+		chapters.length === 1 ? __('session') : __('sessions')
 	}`
 })
 

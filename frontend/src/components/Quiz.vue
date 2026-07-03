@@ -164,19 +164,18 @@
 								v-for="(answer, idx) in showAnswers"
 							>
 								<div v-if="index - 1 == idx">
+									<!-- A correct answer (whether the learner picked it,
+									     answer == 1, or missed it, answer == 2) gets a green
+									     check so the right choice is unmistakable. -->
 									<CheckCircle
-										v-if="answer == 1"
-										class="w-4 h-4 text-ink-green-2"
-									/>
-									<MinusCircle
-										v-else-if="answer == 2"
-										class="w-4 h-4 text-ink-green-2"
+										v-if="answer == 1 || answer == 2"
+										class="w-4 h-4 text-ink-green-3"
 									/>
 									<XCircle
 										v-else-if="answer == 0"
 										class="w-4 h-4 text-ink-red-3"
 									/>
-									<MinusCircle v-else class="w-4 h-4" />
+									<MinusCircle v-else class="w-4 h-4 text-ink-gray-4" />
 								</div>
 							</div>
 							<span
@@ -837,14 +836,16 @@ const getAnswers = () => {
 }
 
 // #6 / #18: color the option row by result once answers are revealed.
-// showAnswers[i]: 1 = selected & correct, 0 = selected & wrong, 2 = partial,
-// undefined = not selected. index here is 1-based.
+// showAnswers[i]: 1 = selected & correct, 0 = selected & wrong,
+// 2 = correct answer the learner missed, undefined = not selected.
+// index here is 1-based.
 const optionResultClass = (index) => {
 	if (!showAnswers.length) return 'bg-surface-gray-3 border-transparent'
 	const status = showAnswers[index - 1]
-	if (status === 1)
+	// Both a correctly-picked answer (1) and a missed correct answer (2) are
+	// highlighted green + bold so the right choice stands out clearly.
+	if (status === 1 || status === 2)
 		return 'bg-surface-green-2 border-green-500 font-bold text-ink-green-3'
-	if (status === 2) return 'bg-surface-amber-1 border-amber-400 font-medium'
 	if (status === 0) return 'bg-surface-red-1 border-red-400 font-medium'
 	return 'bg-surface-gray-3 border-transparent'
 }
