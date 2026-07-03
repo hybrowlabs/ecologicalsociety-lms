@@ -133,6 +133,7 @@
 							doctype="User"
 							url="lms.lms.api.search_users_by_role"
 							:searchParams="{ roles: JSON.stringify(['Batch Evaluator']) }"
+							:extraOptions="instructorOptions"
 							:label="__('Instructors')"
 							:placeholder="__('Select instructors')"
 							:required="true"
@@ -332,7 +333,24 @@ import EmailTemplateModal from '@/components/Modals/EmailTemplateModal.vue'
 
 const router = useRouter()
 const user = inject('$user')
-const instructors = ref([])
+
+const instructors = computed({
+	get: () => (batchDetail.doc?.instructors || []).map((row) => row.instructor),
+	set: (value) => {
+		if (batchDetail.doc)
+			batchDetail.doc.instructors = (value || []).map((instructor) => ({
+				instructor,
+			}))
+	},
+})
+
+
+const instructorOptions = computed(() =>
+	(props.batch?.data?.instructors || []).map((i) => ({
+		label: i.full_name || i.name,
+		value: i.name,
+	}))
+)
 const app = getCurrentInstance()
 const { capture } = useTelemetry()
 const { $dialog } = app.appContext.config.globalProperties
@@ -424,12 +442,8 @@ watch(
 
 const updateBatchData = () => {
 	Object.keys(batchDetail.doc).forEach((key) => {
-		if (key == 'instructors') {
-			instructors.value = []
-			batchDetail.doc.instructors.forEach((instructor) => {
-				instructors.value.push(instructor.instructor)
-			})
-		} else if (['start_time', 'end_time'].includes(key)) {
+		// `instructors` is a computed bound directly to the doc — no rebuild here.
+		if (['start_time', 'end_time'].includes(key)) {
 			batchDetail.doc[key] = formatTime(batchDetail.doc[key])
 		}
 	})

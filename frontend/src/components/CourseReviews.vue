@@ -1,17 +1,17 @@
 <template>
 	<div v-if="reviews.data?.length || membership" class="mt-12">
-		<div class="flex items-center justify-between gap-3 mb-8">
+		<!-- Only show the ratings count when there's at least one review; a bare
+		     "0 user ratings" on a course with no reviews looked like an error. -->
+		<div
+			v-if="reviews.data?.length"
+			class="flex items-center justify-between gap-3 mb-8"
+		>
 			<div class="flex items-center gap-2">
 				<span class="text-lg text-ink-gray-7">
-					{{ reviews.data?.length || 0 }}
-					{{
-						(reviews.data?.length || 0) === 1
-							? __('user rating')
-							: __('user ratings')
-					}}
+					{{ reviews.data.length }}
+					{{ reviews.data.length === 1 ? __('user rating') : __('user ratings') }}
 				</span>
 			</div>
-
 		</div>
 
 		<div
