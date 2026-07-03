@@ -110,7 +110,7 @@
 						class="w-fit mt-1"
 						@click="goToNextLesson"
 					>
-						{{ __('Next Lesson') }}
+						{{ __('Next') }}
 					</Button>
 				</div>
 				<div v-if="showUploader()" class="border rounded-lg p-3">

@@ -34,7 +34,7 @@
 						<ChevronRight class="w-4 h-4 stroke-1" />
 					</template>
 					<span>
-						{{ __('Next Lesson') }}
+						{{ __('Next') }}
 					</span>
 				</Button>
 
@@ -180,7 +180,7 @@
 						<ChevronRight class="w-4 h-4 stroke-1" />
 					</template>
 					<span>
-						{{ __('Next Lesson') }}
+						{{ __('Next') }}
 					</span>
 				</Button>
 
@@ -747,17 +747,6 @@ const breadcrumbs = computed(() => {
 	crumbs.push({
 		label: lesson?.data?.course_title,
 		route: { name: 'CourseDetail', params: { courseName: props.courseName } },
-	})
-	crumbs.push({
-		label: lesson?.data?.title,
-		route: {
-			name: 'Lesson',
-			params: {
-				courseName: props.courseName,
-				chapterNumber: props.chapterNumber,
-				lessonNumber: props.lessonNumber,
-			},
-		},
 	})
 	return crumbs
 })
