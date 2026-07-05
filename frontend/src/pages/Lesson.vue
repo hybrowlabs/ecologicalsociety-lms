@@ -1261,6 +1261,16 @@ usePageMeta(() => {
 	line-height: 1.7;
 }
 
+/* Collapse empty / line-break-only paragraphs that some lesson bodies (e.g.
+   Jackpots, parts of Session 3) leave after the video or quiz. Left alone they
+   open a large gap before "My Notes" so students never scroll to it. */
+.ProseMirror p:empty,
+.ProseMirror p:has(> br:only-child) {
+	margin: 0;
+	line-height: 0;
+	min-height: 0;
+}
+
 .lesson-content li {
 	line-height: 1.7;
 }

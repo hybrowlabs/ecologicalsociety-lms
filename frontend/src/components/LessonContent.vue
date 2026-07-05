@@ -7,7 +7,7 @@
 			@contextmenu.prevent
 		></div>
 	</div>
-	<div v-for="block in content?.split('\n\n')">
+	<div v-for="block in contentBlocks">
 		<div v-if="block.includes('{{ YouTubeVideo')">
 			<div
 				class="video-player rounded-md overflow-hidden border border-gray-100"
@@ -59,6 +59,7 @@ import PDFViewer from '@/components/PDFViewer.vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { useScreenSize } from '@/utils/composables'
+import { computed } from 'vue'
 
 const screenSize = useScreenSize()
 
@@ -152,6 +153,27 @@ const props = defineProps({
 		type: String,
 		required: false,
 	},
+})
+
+// Split the body into blocks, dropping ones that are visually empty. Some
+// lessons (e.g. Jackpots, parts of Session 3) have trailing blank paragraphs /
+// <br> / &nbsp; after the video or quiz. Each empty block was rendered as its
+// own spaced <div>, opening a big gap before "My Notes" so students missed it.
+const contentBlocks = computed(() => {
+	const raw = props.content?.split('\n\n') ?? []
+	return raw.filter((block) => {
+		// Keep anything carrying a media / quiz macro or real markup.
+		if (block.includes('{{')) return true
+		if (/<(img|iframe|video|audio|table|hr|blockquote)\b/i.test(block))
+			return true
+		// Drop blocks that are only whitespace / line breaks / empty tags.
+		const stripped = block
+			.replace(/<br\s*\/?>/gi, '')
+			.replace(/&nbsp;|&#160;/gi, '')
+			.replace(/<[^>]*>/g, '')
+			.replace(/\s+/g, '')
+		return stripped.length > 0
+	})
 })
 
 const getYouTubeVideoSource = (block) => {
