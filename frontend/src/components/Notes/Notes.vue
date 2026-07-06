@@ -43,6 +43,12 @@ import { blockQuotesClick } from '@/utils/'
 const note = ref<string | null>(null)
 const currentNoteName = ref<string | null>(null)
 const saveStatus = ref<string>('')
+// Guards so a note-list reload (highlight insert, post-save refetch, navigation)
+// can't overwrite text the user is still typing, and so fast typing can't fire
+// two concurrent creates and orphan a duplicate note.
+const isDirty = ref<boolean>(false)
+const saving = ref<boolean>(false)
+const pendingSave = ref<boolean>(false)
 // #27: formatting toolbar shown above the notes editor.
 const fixedMenuButtons = [
 	'Paragraph',
@@ -78,7 +84,20 @@ watch(
 	}
 )
 
+// Switching lessons reuses this component instance; reset editor state so the
+// new lesson's note loads cleanly and stale dirty/name state can't leak across.
+watch(
+	() => props.lesson,
+	() => {
+		isDirty.value = false
+		currentNoteName.value = null
+		note.value = null
+	}
+)
+
 const updateCurrentNote = () => {
+	// Don't clobber unsaved edits with a server refetch mid-typing.
+	if (isDirty.value) return
 	const currentNote = notes.value?.data?.filter((row: Note) => {
 		return !row.highlighted_text && row.note !== ''
 	})
@@ -94,6 +113,7 @@ const updateCurrentNote = () => {
 
 const updateNoteText = (val: string) => {
 	note.value = val
+	isDirty.value = true
 	saveStatus.value = __('Saving…')
 	debouncedSave()
 }
@@ -107,15 +127,32 @@ const debouncedSave = useDebounceFn(() => {
 	saveNotes()
 }, 2000)
 
+// Serialize saves: while one create/update is in flight, queue a single
+// follow-up instead of firing a second request. This prevents two concurrent
+// creates (which would orphan a duplicate note) and guarantees the latest text
+// is persisted once the in-flight request resolves.
 const saveNotes = () => {
+	if (saving.value) {
+		pendingSave.value = true
+		return
+	}
+	saving.value = true
+	const finish = () => {
+		saving.value = false
+		if (pendingSave.value) {
+			pendingSave.value = false
+			saveNotes()
+		}
+	}
 	if (currentNoteName.value) {
-		updateNote()
+		updateNote(finish)
 	} else {
-		createNote()
+		createNote(finish)
 	}
 }
 
-const createNote = () => {
+const createNote = (done?: () => void) => {
+	const saved = note.value
 	notes.value?.insert.submit(
 		{
 			lesson: props.lesson,
@@ -127,19 +164,28 @@ const createNote = () => {
 		{
 			onSuccess(data: Note) {
 				currentNoteName.value = data.name || null
+				// Only clear dirty if the editor hasn't changed since we sent this
+				// value; otherwise a refetch would revert the newer keystrokes.
+				if (note.value === saved) isDirty.value = false
 				saveStatus.value = __('Saved')
 				emit('updateNotes')
+				done?.()
 			},
 			onError(err: any) {
 				saveStatus.value = __('Not saved')
 				console.error('Error creating note:', err)
+				done?.()
 			},
 		}
 	)
 }
 
-const updateNote = () => {
-	if (!currentNoteName.value) return
+const updateNote = (done?: () => void) => {
+	if (!currentNoteName.value) {
+		done?.()
+		return
+	}
+	const saved = note.value
 	notes.value?.setValue.submit(
 		{
 			name: currentNoteName.value,
@@ -148,13 +194,16 @@ const updateNote = () => {
 			note: note.value,
 		},
 		{
-			onSuccess(data: Note) {
+			onSuccess(_data: Note) {
+				if (note.value === saved) isDirty.value = false
 				saveStatus.value = __('Saved')
 				emit('updateNotes')
+				done?.()
 			},
 			onError(err: any) {
 				saveStatus.value = __('Not saved')
 				console.error('Error updating note:', err)
+				done?.()
 			},
 		}
 	)

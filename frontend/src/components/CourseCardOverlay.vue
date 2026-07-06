@@ -1,5 +1,5 @@
 <template>
-	<div class="border-2 rounded-md min-w-80 max-w-sm">
+	<div class="border-2 rounded-md w-full max-w-sm md:min-w-80">
 		<iframe
 			v-if="course.data?.video_link"
 			:src="video_link"

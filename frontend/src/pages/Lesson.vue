@@ -732,7 +732,12 @@ const notes = createListResource({
 		member: user.data?.name,
 	},
 	fields: ['name', 'color', 'highlighted_text', 'note'],
-	cache: ['notes', lesson.data?.name, user.data?.name],
+	// NOTE: intentionally no `cache` key. `lesson`/`user` are undefined at setup,
+	// so a cache key here resolves to a constant (`["notes",null,null]`) and
+	// frappe-ui persists the list to IndexedDB under it — which then re-hydrates
+	// one user's notes into another user/session in the same browser (leakage),
+	// and reuses one lesson's notes on another (vanish). Fetch fresh instead;
+	// `updateNotes()` always sets the current lesson+member filters before reload.
 	onSuccess(data) {
 		data.forEach((note) => {
 			setTimeout(() => {

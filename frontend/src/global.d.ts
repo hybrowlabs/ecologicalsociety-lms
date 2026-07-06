@@ -19,3 +19,13 @@ declare module '@vue/runtime-core' {
     __: (text: string) => string
   }
 }
+
+// frappe-ui ships `useTelemetry` at runtime (frappe-ui/frappe/index.js) but its
+// bundled index.d.ts omits it. Augment the module so consumers type-check.
+declare module 'frappe-ui/frappe' {
+  export function useTelemetry(): {
+    isEnabled: boolean
+    disable: () => void
+    capture: (event_name: string, data?: Record<string, any>) => void
+  }
+}

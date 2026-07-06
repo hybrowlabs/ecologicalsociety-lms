@@ -53,6 +53,7 @@ export interface CourseDetails
 	extends Omit<LMSCourse, 'instructors' | 'rating'> {
 	price?: string
 	current_lesson?: string
+	first_unlocked_lesson?: string
 	instructors: CourseInstructorInfo[]
 	membership?: Membership | null
 	rating?: string
