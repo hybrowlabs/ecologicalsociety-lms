@@ -906,6 +906,9 @@ const attachResume = (player, source, context) => {
 			// Resume only if meaningfully into the video and not basically at the end.
 			if (pos && pos > 3 && (!player.duration || pos < player.duration - 5)) {
 				player.currentTime = pos
+				// This restore is legitimate, so let the skip-guard treat the
+				// resumed position as already watched (don't snap it back).
+				player._esMaxTime = Math.max(player._esMaxTime || 0, pos)
 			}
 		} catch (e) {
 			/* no saved position */
