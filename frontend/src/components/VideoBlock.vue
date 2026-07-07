@@ -182,7 +182,7 @@
 import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
 import { Pause, Maximize, Volume2, VolumeX } from 'lucide-vue-next'
 import { Button, Dialog, Dropdown, call } from 'frappe-ui'
-import { formatSeconds, formatTimestamp } from '@/utils'
+import { formatSeconds, formatTimestamp, isForwardSeekKey } from '@/utils'
 import { useSettings } from '@/stores/settings'
 import Play from '@/components/Icons/Play.vue'
 import QuizInVideo from '@/components/Modals/QuizInVideo.vue'
@@ -296,12 +296,22 @@ onMounted(() => {
 		})
 		videoRef.value.addEventListener('pause', savePosition)
 	}
+	if (videoContainer.value) {
+		videoContainer.value.addEventListener('keydown', blockForwardSeekKeys, true)
+	}
 	window.addEventListener('pagehide', savePosition)
 	window.addEventListener('beforeunload', savePosition)
 })
 
 onBeforeUnmount(() => {
 	savePosition()
+	if (videoContainer.value) {
+		videoContainer.value.removeEventListener(
+			'keydown',
+			blockForwardSeekKeys,
+			true
+		)
+	}
 	window.removeEventListener('pagehide', savePosition)
 	window.removeEventListener('beforeunload', savePosition)
 })
@@ -436,6 +446,16 @@ const changeCurrentTime = () => {
 		return
 	videoRef.value.currentTime = currentTime.value
 	updateNextQuiz()
+}
+
+// #1: block forward seeking via Right Arrow / media keys when skipping is
+// prevented. Volume keys (ArrowUp/ArrowDown) are not intercepted.
+const blockForwardSeekKeys = (event) => {
+	if (!settings.data?.prevent_skipping_videos) return
+	if (isForwardSeekKey(event)) {
+		event.preventDefault()
+		event.stopPropagation()
+	}
 }
 
 const toggleFullscreen = () => {

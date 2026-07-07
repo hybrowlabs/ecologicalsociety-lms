@@ -1005,7 +1005,36 @@ const setupPlyrForVideo = (video, players, context = {}) => {
 	video._plyrInitialized = true
 	// #2: resume from last position (source = the embed/YouTube id for this video).
 	attachResume(player, video.getAttribute('data-plyr-embed-id') || src, context)
+	// #1: block forward seeking. `attachSeekKeyGuard` cancels forward-seek keys
+	// before Plyr acts on them (no visible jump), but for a YouTube/Vimeo embed
+	// the keypress is handled inside the cross-origin iframe and never reaches
+	// us - so `attachForwardSeekClamp` enforces the limit at the player level by
+	// reverting any forward jump past the furthest point already watched.
+	attachSeekKeyGuard(player)
+	attachForwardSeekClamp(player)
 	players.push(player)
+}
+
+// #1: allow only sequential playback. Playback advances `currentTime` in small
+// steps between timeupdates; any jump forward past the furthest-watched point
+// (from an arrow key, media key, digit key or the YouTube iframe's own keyboard
+// shortcuts) exceeds this threshold and is reverted. Backward seeks (rewatching)
+// and volume changes are unaffected.
+const FORWARD_JUMP_THRESHOLD = 3
+const attachForwardSeekClamp = (player) => {
+	player._esMaxTime = player._esMaxTime || 0
+	player.on('timeupdate', () => {
+		const t = player.currentTime || 0
+		if (!useSettings().settings.data?.prevent_skipping_videos) {
+			player._esMaxTime = t
+			return
+		}
+		if (t > player._esMaxTime + FORWARD_JUMP_THRESHOLD) {
+			player.currentTime = player._esMaxTime
+			return
+		}
+		player._esMaxTime = Math.max(player._esMaxTime, t)
+	})
 }
 
 const getTargetTime = (plyr, input) => {
@@ -1017,6 +1046,48 @@ const getTargetTime = (plyr, input) => {
 	} else {
 		return Number(input)
 	}
+}
+
+// #1: keys that move a video forward. Left/rewind, volume (ArrowUp/ArrowDown),
+// play/pause, mute, fullscreen and captions are intentionally NOT listed so
+// accessibility and volume controls keep working when skipping is prevented.
+const FORWARD_SEEK_KEYS = [
+	'ArrowRight',
+	'MediaFastForward',
+	'FastForward',
+	'MediaTrackNext',
+]
+
+export const isForwardSeekKey = (event, currentTime = 0, duration = 0) => {
+	if (FORWARD_SEEK_KEYS.includes(event.key)) return true
+	// Plyr maps digit keys 0-9 to "seek to N*10%"; block only forward jumps.
+	if (/^[0-9]$/.test(event.key) && duration) {
+		return (Number(event.key) / 10) * duration > currentTime
+	}
+	return false
+}
+
+// Intercept forward-seek keys in the capture phase on an ancestor of Plyr's
+// container, so they are cancelled before Plyr's own (bubble-phase) keyboard
+// handler runs — only when "Prevent Skipping Videos" is enabled.
+const attachSeekKeyGuard = (player) => {
+	player.on('ready', () => {
+		const container = player.elements?.container
+		const anchor = container?.parentElement || container
+		if (!anchor || anchor._seekKeyGuardAttached) return
+		anchor._seekKeyGuardAttached = true
+		anchor.addEventListener(
+			'keydown',
+			(event) => {
+				if (!useSettings().settings.data?.prevent_skipping_videos) return
+				if (isForwardSeekKey(event, player.currentTime, player.duration)) {
+					event.preventDefault()
+					event.stopPropagation()
+				}
+			},
+			true
+		)
+	})
 }
 
 const extractYouTubeId = (url) => {
@@ -1124,26 +1195,63 @@ const getRootNode = (selector = '#editor') => {
 	return root
 }
 
-const createTextWalker = (root, phrase) => {
-	return document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+// Collect every text node under `root` in document order, along with the offset
+// at which each node's text starts inside the concatenated content. This lets a
+// selection that spans multiple elements (headings, lists, links, bold text) be
+// located and highlighted, which the previous single-node matcher could not do.
+const getTextNodeMap = (root) => {
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
 		acceptNode(node) {
-			return node.nodeValue.toLowerCase().includes(phrase.toLowerCase())
+			return node.nodeValue
 				? NodeFilter.FILTER_ACCEPT
-				: NodeFilter.FILTER_SKIP
+				: NodeFilter.FILTER_REJECT
 		},
 	})
+	const nodeMap = []
+	let raw = ''
+	let node
+	while ((node = walker.nextNode())) {
+		nodeMap.push({ node, start: raw.length })
+		raw += node.nodeValue
+	}
+	return { nodeMap, raw }
 }
 
-const findMatchingTextNode = (walker, phrase) => {
-	const node = walker.nextNode()
-	if (!node) return null
+// Collapse runs of whitespace to a single space, keeping a map from each
+// normalised character back to its index in the raw text. Selections that cross
+// block boundaries collapse whitespace differently from the DOM, so matching is
+// done whitespace-insensitively and then mapped back to real offsets.
+const collapseWhitespace = (raw) => {
+	let norm = ''
+	const charMap = []
+	let prevSpace = false
+	for (let i = 0; i < raw.length; i++) {
+		if (/\s/.test(raw[i])) {
+			if (prevSpace) continue
+			norm += ' '
+			charMap.push(i)
+			prevSpace = true
+		} else {
+			norm += raw[i]
+			charMap.push(i)
+			prevSpace = false
+		}
+	}
+	return { norm, charMap }
+}
 
-	const startIndex = node.nodeValue
-		.toLowerCase()
-		.indexOf(phrase.toLowerCase())
-	const endIndex = startIndex + phrase.length
+// Return the [start, end) offsets of `phrase` inside the raw concatenated text
+// (whitespace-insensitive, case-insensitive), or null when it is not present.
+const locatePhrase = (raw, phrase) => {
+	const { norm, charMap } = collapseWhitespace(raw)
+	const { norm: normPhrase } = collapseWhitespace(phrase)
+	const needle = normPhrase.trim().toLowerCase()
+	if (!needle) return null
 
-	return { node, startIndex, endIndex }
+	const at = norm.toLowerCase().indexOf(needle)
+	if (at === -1) return null
+
+	return { start: charMap[at], end: charMap[at + needle.length - 1] + 1 }
 }
 
 const createHighlightSpan = (color, name, scrollIntoView) => {
@@ -1159,18 +1267,33 @@ const createHighlightSpan = (color, name, scrollIntoView) => {
 	return span
 }
 
-const wrapRangeInHighlight = (
-	{ node, startIndex, endIndex },
-	color,
-	name,
-	scrollIntoView
-) => {
-	const range = document.createRange()
-	range.setStart(node, startIndex)
-	range.setEnd(node, endIndex)
+// Wrap the phrase wherever it occurs, one text node at a time. Each range is
+// contained within a single text node, so `surroundContents` is always valid
+// (it never throws the "partially selected a non-Text node" InvalidStateError
+// that a multi-node range would). Returns the first highlight span created.
+const wrapPhraseAcrossNodes = (root, phrase, color, name, scrollIntoView) => {
+	const { nodeMap, raw } = getTextNodeMap(root)
+	if (!raw) return null
 
-	const span = createHighlightSpan(color, name, scrollIntoView)
-	range.surroundContents(span)
+	const found = locatePhrase(raw, phrase)
+	if (!found) return null
+
+	let firstSpan = null
+	for (const { node, start } of nodeMap) {
+		const nodeEnd = start + node.nodeValue.length
+		const from = Math.max(found.start, start)
+		const to = Math.min(found.end, nodeEnd)
+		if (from >= to) continue
+
+		const range = document.createRange()
+		range.setStart(node, from - start)
+		range.setEnd(node, to - start)
+
+		const span = createHighlightSpan(color, name, scrollIntoView)
+		range.surroundContents(span)
+		if (!firstSpan) firstSpan = span
+	}
+	return firstSpan
 }
 
 export const highlightText = (note, scrollIntoView = false) => {
@@ -1179,24 +1302,23 @@ export const highlightText = (note, scrollIntoView = false) => {
 	const root = getRootNode()
 	if (!root) return
 
-	const phrase = note.highlighted_text
 	const color = note.color.toLowerCase()
-
-	const walker = createTextWalker(root, phrase)
-	const match = findMatchingTextNode(walker, phrase)
-	if (!match) return
-
-	wrapRangeInHighlight(match, color, note.name, scrollIntoView)
+	const span = wrapPhraseAcrossNodes(
+		root,
+		note.highlighted_text,
+		color,
+		note.name,
+		scrollIntoView
+	)
+	if (!span) return
 
 	if (scrollIntoView) {
-		match.node.parentElement.scrollIntoView({
+		span.scrollIntoView({
 			behavior: 'smooth',
 			block: 'center',
 		})
 		setTimeout(() => {
-			const highlightedElements =
-				document.querySelectorAll('.highlighted-text')
-			highlightedElements.forEach((el) => {
+			document.querySelectorAll('.highlighted-text').forEach((el) => {
 				if (el.dataset.name === note.name) {
 					el.style.border = 'none'
 					el.style.borderRadius = '0px'
