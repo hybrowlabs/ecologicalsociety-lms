@@ -101,7 +101,7 @@
 								inlineSelect ? 'cursor-pointer' : '',
 								lesson.is_locked || isLessonLocked ? 'cursor-not-allowed opacity-60' : '',
 							]"
-							@click="!lesson.is_locked && !isLessonLocked && onLessonClick(lesson)"
+							@click="onLessonClick(lesson)"
 						>
 							<div class="flex items-center text-sm leading-5 group">
 								<MonitorPlay
@@ -282,6 +282,16 @@ function lessonRoute(lesson: OutlineLesson): RouteLocationRaw {
 }
 
 function onLessonClick(lesson: OutlineLesson) {
+	// Locked lessons render as a non-navigable div; tell the learner why it
+	// can't be opened instead of silently swallowing the click.
+	if (lesson.is_locked) {
+		toast.warning(__('Please complete the previous lesson to unlock this one.'))
+		return
+	}
+	if (isLessonLocked.value) {
+		toast.warning(__('Please enroll for this course to view this lesson'))
+		return
+	}
 	if (!props.inlineSelect) return
 	emit('select-lesson', {
 		chapterNumber: lesson.number.split('-')[0],

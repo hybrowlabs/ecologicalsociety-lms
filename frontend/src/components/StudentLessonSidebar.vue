@@ -65,14 +65,7 @@
 								? 'bg-surface-gray-2 text-ink-gray-9'
 								: '',
 						]"
-						@click="
-							!lesson.is_locked &&
-								inlineSelect &&
-								emit('select-lesson', {
-									chapterNumber: lesson.number.split('-')[0],
-									lessonNumber: lesson.number.split('-')[1],
-								})
-						"
+						@click="onLessonClick(lesson)"
 					>
 						<component
 							:is="iconFor(lesson.icon)"
@@ -97,7 +90,7 @@
 
 <script setup>
 import { computed, watch, watchEffect } from 'vue'
-import { createResource } from 'frappe-ui'
+import { createResource, toast } from 'frappe-ui'
 import { Disclosure, DisclosureButton, DisclosurePanel } from '@headlessui/vue'
 import {
 	ChevronDown,
@@ -161,6 +154,24 @@ watchEffect(() => {
 })
 
 const displayedProgress = computed(() => Math.ceil(props.progress || 0))
+
+// A locked lesson renders as a non-navigable div; clicking it used to do
+// nothing silently. Surface *why* it can't be opened so the learner knows to
+// finish the earlier lesson first (sequential prerequisite locking, feature 2).
+function onLessonClick(lesson) {
+	if (lesson.is_locked) {
+		toast.warning(
+			__('Please complete the previous lesson to unlock this one.')
+		)
+		return
+	}
+	if (props.inlineSelect) {
+		emit('select-lesson', {
+			chapterNumber: lesson.number.split('-')[0],
+			lessonNumber: lesson.number.split('-')[1],
+		})
+	}
+}
 
 function iconFor(icon) {
 	switch (icon) {
