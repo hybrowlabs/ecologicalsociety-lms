@@ -275,6 +275,10 @@ watch(
 				break
 			}
 		}
+		// `is_locked` on the next lesson is computed server-side, so re-fetch the
+		// outline to unlock it without a manual refresh. The optimistic flip above
+		// keeps the just-completed lesson's tick instant while the reload lands.
+		outline.reload()
 	}
 )
 

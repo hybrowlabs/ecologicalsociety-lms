@@ -309,6 +309,7 @@
 					:progress="lessonProgress"
 					:selectedLessonNumber="`${chapterNumber}-${lessonNumber}`"
 					:completedLesson="completedLesson"
+					:refreshSignal="sidebarRefresh"
 					:withProgress="lesson.data.membership ? true : false"
 				/>
 			</div>
@@ -413,6 +414,11 @@ const plyrSources = ref([])
 const showInlineMenu = ref(false)
 const currentTab = ref(null)
 const completedLesson = ref(null)
+// Bumped on a server-confirmed progress change (the `update_lesson_progress`
+// socket event) so the sidebar re-fetches the outline and its sequential locks —
+// this is what actually unlocks the next lesson after a quiz passes without a
+// manual page refresh.
+const sidebarRefresh = ref(0)
 // #12: topic to auto-open when arriving from a discussion notification deep-link.
 const deepLinkTopic = ref('')
 // #26: standalone notes panel (above the quiz) open state.
@@ -477,6 +483,11 @@ onMounted(() => {
 		if (data.course === props.courseName) {
 			lessonProgress.value = data.progress
 			emit('progress-updated', data.progress)
+			// Any server-confirmed progress change may have unlocked a lesson;
+			// refresh the sidebar's outline so its lock icons reflect it. (A quiz
+			// pass/fail both fire this event, so the sidebar reloads rather than
+			// optimistically marking — the server decides completion/lock state.)
+			sidebarRefresh.value++
 			if (data.lesson === lesson.data?.name) {
 				nextTarget.reload()
 			}

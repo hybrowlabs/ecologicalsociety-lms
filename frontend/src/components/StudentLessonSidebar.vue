@@ -113,6 +113,12 @@ const props = defineProps({
 	completedLesson: { type: String, default: null },
 	inlineSelect: { type: Boolean, default: false },
 	withProgress: { type: Boolean, default: true },
+	// Bumped by the parent (Lesson.vue) on a server-confirmed progress change —
+	// e.g. a quiz result arriving over the `update_lesson_progress` socket event.
+	// A quiz *pass* unlocks the next lesson, but `is_locked` is computed
+	// server-side, so we must re-fetch rather than mutate locally. A quiz *fail*
+	// fires the same event, so this only reloads (authoritative) and never marks.
+	refreshSignal: { type: Number, default: 0 },
 })
 
 const emit = defineEmits(['select-lesson'])
@@ -135,6 +141,26 @@ const outline = createResource({
 
 watch(
 	() => props.courseName,
+	() => outline.reload()
+)
+
+// Completing a lesson can unlock the next one, but `is_locked` is derived
+// server-side (sequential prerequisite locking), so re-fetch the outline to
+// pull the fresh lock state instead of relying on a manual page refresh. The
+// optimistic `is_complete` flip below keeps the current lesson's tick instant
+// while this reload is in flight.
+watch(
+	() => props.completedLesson,
+	(lessonName) => {
+		if (lessonName) outline.reload()
+	}
+)
+
+// A server-confirmed progress change (e.g. a quiz result) may have unlocked the
+// next lesson. Reload authoritatively — never optimistically mark — because a
+// failed quiz raises the same signal.
+watch(
+	() => props.refreshSignal,
 	() => outline.reload()
 )
 
