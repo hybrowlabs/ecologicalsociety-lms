@@ -2547,12 +2547,27 @@ def search_users_by_role(
 
 @frappe.whitelist()
 def get_instructor_options(txt: str = "", page_length: int = 20):
-	"""Return enabled users for the chapter-level instructor selector."""
+	"""Return enabled instructors for the chapter-level (session) instructor selector.
+
+	Only users who hold an instructor-type role (Course Creator or Moderator) are
+	returned, so students and other non-teaching users never appear in the dropdown.
+	"""
 	if not (has_moderator_role() or has_course_instructor_role()):
 		frappe.throw(_("You are not authorized to view instructor options."), frappe.PermissionError)
 
+	instructor_roles = ["Course Creator", "Moderator"]
+	instructor_users = frappe.get_all(
+		"Has Role",
+		filters={"parenttype": "User", "role": ["in", instructor_roles]},
+		pluck="parent",
+		distinct=True,
+	)
+	if not instructor_users:
+		return []
+
 	filters = [
 		["enabled", "=", 1],
+		["name", "in", instructor_users],
 		["name", "not in", ["Administrator", "Guest"]],
 	]
 	if txt:
