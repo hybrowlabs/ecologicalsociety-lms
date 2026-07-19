@@ -321,7 +321,7 @@
 		</div>
 	</div>
 	<InlineLessonMenu
-		v-if="lesson.data?.name"
+		v-if="lesson.data?.name && canTakeNotes"
 		v-model="showInlineMenu"
 		:lesson="lesson.data?.name"
 		v-model:notes="notes"
@@ -1079,14 +1079,18 @@ const checkIfDiscussionsAllowed = () => {
 		}
 	}
 
-	// Ecological Society: keep Q&A discussions available on quiz lessons too
-	// (membership / moderator / instructor still required; hidden in zen mode).
+	// Keep Q&A discussions available on quiz lessons too (hidden in zen mode).
+	// Instructors must be able to see and answer questions: this covers enrolled
+	// learners, moderators, users flagged instructor/evaluator, and — crucially —
+	// anyone assigned as an instructor on this course/chapter/lesson (isAdmin),
+	// who otherwise has no membership and so was locked out of the box entirely.
 	if (
 		!zenModeEnabled.value &&
 		!props.embedded &&
 		(lesson.data?.membership ||
-			user.data?.is_moderator ||
-			user.data?.is_instructor)
+			isAdmin.value ||
+			user.data?.is_instructor ||
+			user.data?.is_evaluator)
 	) {
 		allowDiscussions.value = true
 	} else {
@@ -1095,8 +1099,14 @@ const checkIfDiscussionsAllowed = () => {
 }
 
 const isAdmin = computed(() => {
-	let isInstructor = lesson.data?.instructors?.includes(user.data?.name)
-	return user.data?.is_moderator || isInstructor
+	// `instructors` is a list of user objects ({ name, full_name, ... }) — including
+	// chapter/lesson-level instructors merged in server-side — so match on `.name`.
+	// (The old `.includes(user.name)` compared a string against objects and never
+	// matched, so instructors assigned to this lesson weren't recognised.)
+	const isInstructor = (lesson.data?.instructors || []).some(
+		(i) => (i?.name ?? i) === user.data?.name
+	)
+	return Boolean(user.data?.is_moderator || isInstructor)
 })
 
 // #26: who sees the (moved) note-taking panel - enrolled learners, not admins.
@@ -1138,6 +1148,10 @@ const enrollStudent = () => {
 }
 
 const toggleInlineMenu = async () => {
+	// The inline highlight / "Add to Notes" popup is a learner tool: only show it
+	// to the same audience as the My Notes panel (enrolled students, not
+	// instructors/moderators, not embedded).
+	if (!canTakeNotes.value) return
 	showInlineMenu.value = false
 	await nextTick()
 	let selection = window.getSelection()

@@ -231,6 +231,14 @@ const fetchMentionUsers = () => {
 					})
 					renderEditor.value = true
 				},
+				// get_all_users is restricted to Moderator/Course Creator/Batch
+				// Evaluator. An instructor without one of those roles gets a
+				// PermissionError — still let them reply, just without the mention
+				// list, instead of leaving the editor hidden entirely.
+				onError() {
+					mentionUsers.value = []
+					renderEditor.value = true
+				},
 			}
 		)
 	}
