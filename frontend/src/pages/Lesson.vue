@@ -96,9 +96,14 @@
 					</Button>
 				</div>
 			</div>
+			<!-- self-start: the lesson column hugs its content instead of
+			     stretching to the grid's fixed 94vh. Short lessons (a quiz or
+			     assignment with little body) were stretched full height, leaving
+			     a tall blank bordered gap below the content. -->
 			<div
 				v-else
 				ref="lessonContainer"
+				class="self-start"
 				:class="{
 					'overflow-y-auto': zenModeEnabled,
 					'bg-surface-white': !(zenModeEnabled && zenDark),
@@ -106,7 +111,7 @@
 				}"
 			>
 				<div
-					class="border-e pt-5 pb-10 h-full"
+					class="border-e pt-5 pb-10"
 					:class="{
 						'w-full md:w-3/5 mx-auto border-none !pt-10': zenModeEnabled,
 					}"

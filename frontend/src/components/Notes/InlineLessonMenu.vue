@@ -108,7 +108,32 @@ const colors = computed(() => {
 	return ['Red', 'Blue', 'Green', 'Yellow', 'Purple']
 })
 
+// The highlighted `<span class="highlighted-text" data-name="...">` the current
+// selection sits inside (or overlaps), if any. Matching on the rendered element
+// is far more reliable than comparing exact selected strings: partial
+// selections, trailing whitespace or spanning nodes used to make the exact-text
+// check fail, so "Remove Highlight" silently disappeared even on highlighted
+// content.
+const highlightedElAtSelection = (): HTMLElement | null => {
+	const selection = currentSelection.value
+	if (!selection || selection.rangeCount === 0) return null
+	const candidates = [
+		selection.anchorNode,
+		selection.focusNode,
+		selection.getRangeAt(0).commonAncestorContainer,
+	]
+	for (const node of candidates) {
+		const el = node?.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element | null)
+		const hit = el?.closest?.('.highlighted-text') as HTMLElement | null
+		if (hit) return hit
+	}
+	return null
+}
+
 const highlightExists = () => {
+	// Prefer the rendered highlight under the cursor; fall back to an exact
+	// text match so highlights created this session (before a reload) still show.
+	if (highlightedElAtSelection()) return true
 	return notes.value?.data?.some(
 		(note: Note) => note.highlighted_text === selectedText.value
 	)
@@ -140,9 +165,15 @@ const saveHighLight = (color: string) => {
 }
 
 const deleteHighlight = () => {
-	let notesToDelete = notes.value?.data.find(
-		(note: Note) => note.highlighted_text === selectedText.value
-	)
+	// Delete the highlight the selection actually sits in (by its data-name)
+	// when we can resolve it; otherwise fall back to matching the selected text.
+	const el = highlightedElAtSelection()
+	const targetName = el?.dataset?.name
+	let notesToDelete = targetName
+		? notes.value?.data.find((note: Note) => note.name === targetName)
+		: notes.value?.data.find(
+				(note: Note) => note.highlighted_text === selectedText.value
+		  )
 	if (!notesToDelete) return
 	notes.value?.delete.submit(notesToDelete.name, {
 		onSuccess() {

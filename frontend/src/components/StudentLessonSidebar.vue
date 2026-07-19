@@ -19,26 +19,27 @@
 		</div>
 
 		<div class="flex-1 overflow-y-auto px-2 py-3">
-			<Disclosure
-				v-for="chapter in outline.data || []"
-				:key="chapter.name"
-				v-slot="{ open }"
-				:defaultOpen="chapterDefaultOpen(chapter)"
-			>
-				<DisclosureButton
+			<div v-for="chapter in outline.data || []" :key="chapter.name">
+				<!-- Accordion: exactly one session is expanded at a time. Clicking a
+				     collapsed session opens it and closes the previous one; clicking
+				     the open session collapses it and it stays collapsed (no session
+				     silently re-expands on outline reloads). -->
+				<button
+					type="button"
 					class="w-full flex items-center justify-between rounded px-3 py-2 hover:bg-surface-gray-2 text-left"
+					@click="toggleChapter(chapter.name)"
 				>
 					<div
 						class="flex items-center gap-2 text-sm font-medium text-ink-gray-9 min-w-0"
 					>
 						<ChevronDown
 							class="size-4 stroke-1.5 shrink-0 transition-transform"
-							:class="{ '-rotate-90': !open }"
+							:class="{ '-rotate-90': openChapter !== chapter.name }"
 						/>
 						<span class="truncate">{{ chapter.title }}</span>
 					</div>
-				</DisclosureButton>
-				<DisclosurePanel>
+				</button>
+				<div v-show="openChapter === chapter.name">
 					<component
 						:is="inlineSelect || lesson.is_locked ? 'div' : 'router-link'"
 						v-for="lesson in chapter.lessons || []"
@@ -82,16 +83,15 @@
 						/>
 						<Circle v-else class="size-4 stroke-1.5 shrink-0 text-ink-gray-4" />
 					</component>
-				</DisclosurePanel>
-			</Disclosure>
+				</div>
+			</div>
 		</div>
 	</div>
 </template>
 
 <script setup>
-import { computed, watch, watchEffect } from 'vue'
+import { computed, ref, watch, watchEffect } from 'vue'
 import { createResource, toast } from 'frappe-ui'
-import { Disclosure, DisclosureButton, DisclosurePanel } from '@headlessui/vue'
 import {
 	ChevronDown,
 	Circle,
@@ -220,11 +220,49 @@ function isActive(number) {
 	return props.selectedLessonNumber === number
 }
 
-function chapterDefaultOpen(chapter) {
-	if (!props.selectedLessonNumber) return chapter.idx === 1
+// Accordion open-state: the name of the single expanded chapter (or null when
+// every session is collapsed). Controlled here — rather than relying on an
+// uncontrolled Disclosure `defaultOpen` — so an outline reload can never
+// silently re-expand a session the user just collapsed.
+const openChapter = ref(null)
+let initialized = false
+
+function chapterOf(lessonNumber) {
+	if (!lessonNumber || !outline.data) return null
 	return (
-		chapter.lessons?.some((l) => l.number === props.selectedLessonNumber) ||
-		false
+		outline.data.find((c) =>
+			c.lessons?.some((l) => l.number === lessonNumber)
+		) || null
 	)
 }
+
+function toggleChapter(name) {
+	// Clicking the open session collapses it (and it stays collapsed); clicking
+	// any other session opens it and closes the previously expanded one.
+	openChapter.value = openChapter.value === name ? null : name
+}
+
+// Seed the open session once, when the outline first loads: the session that
+// holds the current lesson, otherwise the first session.
+watch(
+	() => outline.data,
+	(data) => {
+		if (!data || initialized) return
+		initialized = true
+		openChapter.value =
+			chapterOf(props.selectedLessonNumber)?.name ?? data[0]?.name ?? null
+	},
+	{ immediate: true }
+)
+
+// Navigating to a lesson in a different session expands that session (so the
+// learner sees where they are). Staying on the same lesson — e.g. a plain
+// outline reload — does not fire this, so a manual collapse is preserved.
+watch(
+	() => props.selectedLessonNumber,
+	(number) => {
+		const chapter = chapterOf(number)
+		if (chapter) openChapter.value = chapter.name
+	}
+)
 </script>

@@ -60,6 +60,8 @@
 							:isEnrolled="isEnrolled"
 							:chaptersOnly="chaptersOnly"
 							:relabelChapters="relabelChapters"
+							:isOpen="isChapterOpen(chapter)"
+							@toggle="onToggleChapter"
 							@select-lesson="(payload) => emit('select-lesson', payload)"
 							@edit-chapter="openChapterModal"
 							@delete-chapter="trashChapter"
@@ -97,8 +99,8 @@
 
 <script setup lang="ts">
 import { Button, createResource, toast } from 'frappe-ui'
-import { inject, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, inject, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import Draggable from 'vuedraggable'
 import { BookOpen, Plus } from 'lucide-vue-next'
 import ChapterModal from '@/components/Modals/ChapterModal.vue'
@@ -133,6 +135,7 @@ type DialogFn = (opts: {
 import { getCurrentInstance } from 'vue'
 const user = inject<SessionUser>('$user')!
 const router = useRouter()
+const route = useRoute()
 const showChapterModal = ref<boolean>(false)
 const currentChapter = ref<OutlineChapter | null>(null)
 const { $dialog } = getCurrentInstance()!.appContext.config
@@ -262,6 +265,48 @@ const outline = createResource({
 watch(
 	() => props.courseName,
 	() => outline.reload()
+)
+
+// Session expand/collapse is controlled here so an outline reload can never
+// silently re-expand a session the user collapsed (the old per-row
+// `defaultOpen` kept snapping Session 1 back open). In the read-only outline
+// this is a strict accordion — one session open at a time; in the editor,
+// sessions expand independently so lessons can be dragged between them.
+const openChapters = ref<Set<string>>(new Set())
+const accordion = computed<boolean>(() => !props.allowEdit && !props.chaptersOnly)
+
+function isChapterOpen(chapter: OutlineChapter): boolean {
+	return openChapters.value.has(chapter.name)
+}
+
+function onToggleChapter(chapter: OutlineChapter) {
+	const next = new Set(openChapters.value)
+	const isOpen = next.has(chapter.name)
+	if (accordion.value) {
+		next.clear()
+		if (!isOpen) next.add(chapter.name)
+	} else if (isOpen) {
+		next.delete(chapter.name)
+	} else {
+		next.add(chapter.name)
+	}
+	openChapters.value = next
+}
+
+// Seed the open session once, when the outline first loads: the session named
+// in the route, otherwise the first session (matches the previous default).
+let outlineInitialized = false
+watch(
+	() => outline.data,
+	(data) => {
+		if (!data || outlineInitialized) return
+		outlineInitialized = true
+		const activeIdx = Number(route.params.chapterNumber) || null
+		const active =
+			(activeIdx && data.find((c) => c.idx === activeIdx)) || data[0]
+		openChapters.value = new Set(active ? [active.name] : [])
+	},
+	{ immediate: true }
 )
 
 watch(

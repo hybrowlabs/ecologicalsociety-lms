@@ -9,12 +9,16 @@
 			</div>
 		</div>
 	</div>
-	<Disclosure v-else v-slot="{ open }" :key="chapter.name" :defaultOpen="defaultOpen">
-		<DisclosureButton class="flex items-center w-full p-2 group">
+	<div v-else :key="chapter.name">
+		<button
+			type="button"
+			class="flex items-center w-full p-2 group"
+			@click="emit('toggle', chapter)"
+		>
 			<ChevronRight
 				:class="{
-					'rotate-90': open,
-					'rtl:rotate-180': !open,
+					'rotate-90': isOpen,
+					'rtl:rotate-180': !isOpen,
 					hidden: chapter.is_scorm_package,
 				}"
 				class="size-4 text-ink-gray-9 stroke-1 transform duration-200"
@@ -75,8 +79,8 @@
 				v-if="chapter.is_scorm_package && isScormChapterComplete"
 				class="lucide-check size-4 text-green-700"
 			/>
-		</DisclosureButton>
-		<DisclosurePanel v-if="!chapter.is_scorm_package">
+		</button>
+		<div v-if="!chapter.is_scorm_package" v-show="isOpen">
 			<Draggable
 				:list="chapter.lessons"
 				:disabled="!allowEdit"
@@ -160,15 +164,14 @@
 					{{ __('Add Lesson') }}
 				</Button>
 			</div>
-		</DisclosurePanel>
-	</Disclosure>
+		</div>
+	</div>
 </template>
 
 <script setup lang="ts">
 import { Button, Tooltip, toast } from 'frappe-ui'
 import { computed, inject } from 'vue'
 import Draggable from 'vuedraggable'
-import { Disclosure, DisclosureButton, DisclosurePanel } from '@headlessui/vue'
 import {
 	Check,
 	ChevronRight,
@@ -204,6 +207,10 @@ const props = withDefaults(
 		chaptersOnly?: boolean
 		isEnrolled?: boolean
 		relabelChapters?: boolean
+		// Whether this session is expanded. Controlled by the parent
+		// (CourseOutline) so it can enforce single-open accordion behaviour and
+		// so an outline reload never silently re-expands a collapsed session.
+		isOpen?: boolean
 	}>(),
 	{
 		allowEdit: false,
@@ -213,6 +220,7 @@ const props = withDefaults(
 		chaptersOnly: false,
 		isEnrolled: true,
 		relabelChapters: false,
+		isOpen: false,
 	}
 )
 
@@ -237,16 +245,12 @@ const emit = defineEmits<{
 	'move-lesson': [DraggableEvent]
 	'add-lesson': [{ chapter: OutlineChapter; lessonIdx: number }]
 	'edit-lesson': [{ chapter: OutlineChapter; lesson: OutlineLesson }]
+	toggle: [OutlineChapter]
 }>()
 
 const route = useRoute()
 const router = useRouter()
 const user = inject<SessionUser>('$user')!
-
-const defaultOpen = computed<boolean>(() => {
-	const active = route.params.chapterNumber
-	return active ? props.chapter.idx == Number(active) : props.chapter.idx == 1
-})
 
 const isScormChapterComplete = computed<boolean>(() =>
 	Boolean(

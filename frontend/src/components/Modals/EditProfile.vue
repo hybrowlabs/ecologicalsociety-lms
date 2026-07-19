@@ -27,9 +27,12 @@
 				<div class="grid grid-cols-2 gap-10">
 					<div class="space-y-4">
 						<div class="space-y-4">
+<!-- #10: Profile Image is optional - pass required=false so the
+							     Uploader (which defaults to required) drops the red asterisk. -->
 							<Uploader
 								v-model="profile.image"
 								:label="__('Profile Image')"
+								:required="false"
 								shape="circle"
 							/>
 
@@ -49,11 +52,9 @@
 								v-model="profile.linkedin"
 								:label="__('LinkedIn ID')"
 							/>
-							<FormControl v-model="profile.github" :label="__('GitHub ID')" />
-							<FormControl
-								v-model="profile.twitter"
-								:label="__('Twitter ID')"
-							/>
+							<!-- GitHub ID and Twitter ID (X) removed from the student
+							     profile editor per client request. -->
+
 						</div>
 					</div>
 					<div class="space-y-4">
@@ -107,8 +108,6 @@ const profile = reactive({
 	bio: '',
 	image: '',
 	linkedin: '',
-	github: '',
-	twitter: '',
 })
 
 const updateProfile = createResource({
@@ -192,8 +191,6 @@ watch(
 			profile.headline = newVal.headline
 			profile.bio = newVal.bio
 			profile.linkedin = newVal.linkedin
-			profile.github = newVal.github
-			profile.twitter = newVal.twitter
 			profile.image = newVal.user_image
 			isDirty.value = false
 		}

@@ -96,21 +96,13 @@
 					<div class="text-base text-ink-gray-7 mt-1">
 						{{ profile.data.headline }}
 					</div>
+					<!-- GitHub and Twitter (X) profile links removed per client
+					     request; only LinkedIn remains. -->
 					<div class="flex items-center gap-x-4 mt-2">
-						<Twitter
-							v-if="profile.data.twitter"
-							class="size-4 text-ink-gray-5 cursor-pointer"
-							@click="navigateTo(profile.data.twitter)"
-						/>
 						<Linkedin
 							v-if="profile.data.linkedin"
 							class="size-4 text-ink-gray-5 cursor-pointer"
 							@click="navigateTo(profile.data.linkedin)"
-						/>
-						<Github
-							v-if="profile.data.github"
-							class="size-4 text-ink-gray-5 cursor-pointer"
-							@click="navigateTo(profile.data.github)"
 						/>
 					</div>
 				</div>
@@ -155,14 +147,7 @@ import {
 } from 'frappe-ui'
 import { computed, inject, watch, ref, onMounted, watchEffect } from 'vue'
 import { sessionStore } from '@/stores/session'
-import {
-	BadgeCheckIcon,
-	Edit,
-	Github,
-	Linkedin,
-	RefreshCcw,
-	Twitter,
-} from 'lucide-vue-next'
+import { BadgeCheckIcon, Edit, Linkedin, RefreshCcw } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { convertToTitleCase } from '@/utils'
 import UserAvatar from '@/components/UserAvatar.vue'
