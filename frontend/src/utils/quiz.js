@@ -5,6 +5,7 @@ import { usersStore } from '../stores/user'
 import translationPlugin from '../translation'
 import { CircleHelp } from 'lucide-vue-next'
 import { getLmsRoute } from '@/utils/basePath'
+import { makeAutoResizeIframe } from '@/utils/autoResizeIframe'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -46,7 +47,8 @@ export class Quiz {
 	renderQuiz(quiz) {
 		if (this.readOnly) {
 			const quizPath = getLmsRoute(`quiz/${quiz}?fromLesson=1`)
-			this.wrapper.innerHTML = `<iframe src="${quizPath}" class="w-full h-[700px]"></iframe>`
+			this.wrapper.innerHTML = ''
+			this.wrapper.appendChild(makeAutoResizeIframe(quizPath))
 			return
 		}
 		this.wrapper.innerHTML = `<div class='border rounded-md p-4 text-center bg-surface-menu-bar mb-4'>

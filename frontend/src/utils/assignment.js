@@ -6,6 +6,7 @@ import { usersStore } from '@/stores/user'
 import { call } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import { getLmsRoute } from '@/utils/basePath'
+import { makeAutoResizeIframe } from '@/utils/autoResizeIframe'
 
 const router = useRouter()
 export class Assignment {
@@ -58,7 +59,8 @@ export class Assignment {
 				const submissionPath = getLmsRoute(
 					`assignment-submission/${assignment}/${submission}?fromLesson=1`
 				)
-				this.wrapper.innerHTML = `<iframe src="${submissionPath}" class="w-full h-[950px]"></iframe>`
+				this.wrapper.innerHTML = ''
+				this.wrapper.appendChild(makeAutoResizeIframe(submissionPath))
 			})
 			return
 		}
