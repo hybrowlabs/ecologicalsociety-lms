@@ -1,9 +1,4 @@
-// Preview (readOnly) lessons embed the quiz and assignment pages in an iframe.
-// These used to be given a fixed height (h-[700px] / h-[950px]), which left a
-// tall blank gap below short content — most visibly between a quiz's "Start"
-// block and the assignment that follows it. Since the iframe is same-origin we
-// can measure its content and size the frame to fit, so blocks sit flush and
-// the outer page does the scrolling.
+
 export function makeAutoResizeIframe(src, { minHeight = 200 } = {}) {
 	const iframe = document.createElement('iframe')
 	iframe.src = src
@@ -30,13 +25,19 @@ export function makeAutoResizeIframe(src, { minHeight = 200 } = {}) {
 		resize()
 		try {
 			const doc = iframe.contentDocument || iframe.contentWindow?.document
-			// The embedded quiz/assignment fetches its data after mount and can
-			// grow (e.g. when the learner clicks "Start"), so keep tracking.
+			
 			if (doc?.body && 'ResizeObserver' in window) {
-				new ResizeObserver(resize).observe(doc.body)
+				const ro = new ResizeObserver(resize)
+				ro.observe(doc.body)
+				if (doc.documentElement) ro.observe(doc.documentElement)
 			}
-			// Fallback for late layout shifts the observer may miss (images,
-			// fonts, async renders) — poll briefly, then stop.
+			if (doc?.body && 'MutationObserver' in window) {
+				new MutationObserver(resize).observe(doc.body, {
+					childList: true,
+					subtree: true,
+					attributes: true,
+				})
+			}
 			let ticks = 0
 			const timer = setInterval(() => {
 				resize()

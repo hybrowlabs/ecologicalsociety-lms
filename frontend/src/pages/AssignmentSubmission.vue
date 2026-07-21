@@ -5,11 +5,13 @@
 	>
 		<Breadcrumbs :items="breadcrumbs" />
 	</header>
-	<div class="overflow-hidden h-[calc(100vh-3.2rem)]">
+	
+	<div :class="fromLesson ? '' : 'overflow-hidden h-[calc(100vh-3.2rem)]'">
 		<Assignment
 			:assignmentID="assignmentID"
 			:submissionName="submissionName"
 			:showTitle="!fromLesson"
+			:embedded="fromLesson"
 		/>
 	</div>
 </template>

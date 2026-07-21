@@ -1,8 +1,11 @@
 <template>
 	<div
 		v-if="assignment.data"
-		class="flex flex-col h-full overflow-y-auto bg-surface-white"
-		:class="{ 'border rounded-lg': !showTitle }"
+		class="flex flex-col bg-surface-white"
+		:class="[
+			{ 'border rounded-lg': !showTitle },
+			embedded ? '' : 'h-full overflow-y-auto',
+		]"
 	>
 		<!-- Top Part: Question & Reference Files -->
 		<div class="p-5 border-b">
@@ -293,6 +296,13 @@ const props = defineProps({
 	showTitle: {
 		type: Boolean,
 		default: true,
+	},
+	// When embedded in a lesson (inside the auto-resize iframe) the component
+	// must flow at natural height instead of scrolling inside a fixed box, so
+	// the iframe can size to it and nothing gets clipped.
+	embedded: {
+		type: Boolean,
+		default: false,
 	},
 })
 
