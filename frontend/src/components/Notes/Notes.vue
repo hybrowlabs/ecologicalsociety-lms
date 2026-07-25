@@ -92,26 +92,57 @@ watch(
 		isDirty.value = false
 		currentNoteName.value = null
 		note.value = null
+		saveStatus.value = ''
 	}
 )
 
+// The editor reports an empty document as `<p></p>` (and can carry stray
+// `<br>`/`&nbsp;` markup), so "is there actually any text here?" needs more than
+// a falsy check.
+const isBlank = (html?: string | null) =>
+	!html ||
+	html
+		.replace(/<[^>]*>/g, '')
+		.replace(/&nbsp;/g, ' ')
+		.trim() === ''
+
 const updateCurrentNote = () => {
-	// Don't clobber unsaved edits with a server refetch mid-typing.
-	if (isDirty.value) return
+	// Don't clobber unsaved edits with a server refetch mid-typing — but an
+	// *empty* editor must never win over a note that came back from the server.
+	// The page load races the notes fetch (it lands a few hundred ms after the
+	// lesson renders), so anything that marks the component dirty in that window
+	// used to suppress the saved note for the rest of the session.
+	if (isDirty.value && !isBlank(note.value)) return
 	const currentNote = notes.value?.data?.filter((row: Note) => {
 		return !row.highlighted_text && row.note !== ''
 	})
-	if (currentNote?.length === 0) {
+	if (!currentNote?.length) {
 		note.value = null
 		currentNoteName.value = null
 		return
-	} else if (currentNote && currentNote.length > 0) {
-		currentNoteName.value = currentNote[0].name
-		note.value = currentNote[0].note || null
 	}
+	// A lesson can carry more than one plain note (older builds could autosave a
+	// blank one). Prefer a note that actually has text so an empty stray can't
+	// mask what the learner wrote.
+	const current = currentNote.find((row: Note) => !isBlank(row.note)) ?? currentNote[0]
+	currentNoteName.value = current.name
+	note.value = current.note || null
+	isDirty.value = false
+	saveStatus.value = ''
 }
 
 const updateNoteText = (val: string) => {
+	// TextEditor re-emits `change` when we load content into it, so the echo of
+	// our own `setContent` arrives back here. Treating that as a user edit
+	// marked the note dirty and autosaved it straight back to the server.
+	if (val === note.value) return
+	// Before the fetch resolves the editor is legitimately empty. Autosaving
+	// that would create a blank note which then masks the real one on the next
+	// page load — exactly the "my notes vanished" report.
+	if (isBlank(val) && !currentNoteName.value) {
+		note.value = val
+		return
+	}
 	note.value = val
 	isDirty.value = true
 	saveStatus.value = __('Saving…')
@@ -119,6 +150,7 @@ const updateNoteText = (val: string) => {
 }
 
 const saveNow = () => {
+	if (isBlank(note.value) && !currentNoteName.value) return
 	saveStatus.value = __('Saving…')
 	saveNotes()
 }
@@ -152,6 +184,13 @@ const saveNotes = () => {
 }
 
 const createNote = (done?: () => void) => {
+	// Never bring a blank note into existence; it would outrank nothing and
+	// only add another row for updateCurrentNote() to pick between.
+	if (isBlank(note.value)) {
+		saveStatus.value = ''
+		done?.()
+		return
+	}
 	const saved = note.value
 	notes.value?.insert.submit(
 		{
