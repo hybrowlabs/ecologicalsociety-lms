@@ -28,11 +28,24 @@
 				:class="inlineSelect ? '' : 'flex items-baseline justify-between gap-3'"
 				@click="redirectToChapter"
 			>
-				<div
-					class="truncate text-base font-medium leading-5 text-ink-gray-9"
-					:title="displayTitle"
-				>
-					{{ displayTitle }}
+				<div class="flex items-center gap-2 min-w-0">
+					<div
+						class="truncate text-base font-medium leading-5 text-ink-gray-9"
+						:title="displayTitle"
+					>
+						{{ displayTitle }}
+					</div>
+					<!-- Status is shown to editors only: a learner never receives a
+					     draft session, so every session they can see is live and a
+					     "Published" badge would be pure noise. -->
+					<Badge
+						v-if="allowEdit"
+						:theme="isDraft ? 'orange' : 'green'"
+						size="sm"
+						class="shrink-0"
+					>
+						{{ isDraft ? __('Draft') : __('Published') }}
+					</Badge>
 				</div>
 				<!-- Instructor under the session title. When we know the
 				     instructor's username, make it open their profile so a
@@ -60,6 +73,26 @@
 				</div>
 			</div>
 			<div class="flex ms-auto gap-x-4 shrink-0">
+				<!-- Publishing is a one-click toggle rather than a modal field so a
+				     new session can be released the moment it is ready. Unlike the
+				     hover-only edit/delete icons this stays visible for drafts —
+				     it is the action the editor is looking for. -->
+				<Tooltip
+					v-if="allowEdit"
+					:text="isDraft ? __('Publish Session') : __('Move to Draft')"
+					placement="bottom"
+				>
+					<component
+						:is="isDraft ? Send : EyeOff"
+						@click.stop.prevent="toggleStatus"
+						class="size-4 stroke-1.5 cursor-pointer"
+						:class="
+							isDraft
+								? 'text-ink-gray-9'
+								: 'text-ink-gray-5 invisible group-hover:visible'
+						"
+					/>
+				</Tooltip>
 				<Tooltip :text="__('Edit Chapter')" placement="bottom">
 					<span
 						v-if="allowEdit"
@@ -169,24 +202,31 @@
 </template>
 
 <script setup lang="ts">
-import { Button, Tooltip, toast } from 'frappe-ui'
+import { Badge, Button, Tooltip, toast } from 'frappe-ui'
 import { computed, inject } from 'vue'
 import Draggable from 'vuedraggable'
 import {
 	Check,
 	ChevronRight,
+	EyeOff,
 	FilePenLine,
 	FileText,
 	HelpCircle,
 	LockKeyhole,
 	MonitorPlay,
 	NotebookPen,
+	Send,
 	SquareCode,
 	Trash2,
 } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
-import type { OutlineChapter, OutlineLesson, SessionUser } from '@/types/api'
+import type {
+	ChapterStatus,
+	OutlineChapter,
+	OutlineLesson,
+	SessionUser,
+} from '@/types/api'
 
 interface DraggableEvent {
 	item: { __draggable_context: { element: OutlineChapter | OutlineLesson } }
@@ -241,6 +281,7 @@ const emit = defineEmits<{
 	'select-lesson': [{ chapterNumber: string; lessonNumber: string }]
 	'edit-chapter': [OutlineChapter]
 	'delete-chapter': [string]
+	'set-chapter-status': [{ chapter: string; status: ChapterStatus }]
 	'delete-lesson': [{ lesson: string; chapter: string }]
 	'move-lesson': [DraggableEvent]
 	'add-lesson': [{ chapter: OutlineChapter; lessonIdx: number }]
@@ -251,6 +292,18 @@ const emit = defineEmits<{
 const route = useRoute()
 const router = useRouter()
 const user = inject<SessionUser>('$user')!
+
+// A chapter saved before the draft/publish feature has no status and is live,
+// so only an explicit 'Draft' counts as held back — mirrors `is_draft_chapter`
+// on the server.
+const isDraft = computed<boolean>(() => props.chapter.status === 'Draft')
+
+function toggleStatus() {
+	emit('set-chapter-status', {
+		chapter: props.chapter.name,
+		status: isDraft.value ? 'Published' : 'Draft',
+	})
+}
 
 const isScormChapterComplete = computed<boolean>(() =>
 	Boolean(

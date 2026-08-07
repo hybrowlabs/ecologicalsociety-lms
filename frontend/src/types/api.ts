@@ -79,10 +79,15 @@ export interface OutlineLesson {
 	is_locked?: boolean
 }
 
+export type ChapterStatus = 'Draft' | 'Published'
+
 export interface OutlineChapter {
 	name: string
 	title: string
 	idx: number
+	// Only editors ever receive a 'Draft' chapter — the API filters them out
+	// of a learner's outline entirely.
+	status?: ChapterStatus
 	is_scorm_package?: 0 | 1
 	scorm_package?: { file_name: string; file_size: number } | null
 	lessons?: OutlineLesson[]
@@ -106,6 +111,7 @@ export interface ChapterDetailInput {
 	is_scorm_package?: 0 | 1
 	scorm_package?: { file_name: string; file_size: number } | null
 	instructor?: string | null
+	status?: ChapterStatus
 }
 
 export interface CourseFormMeta {

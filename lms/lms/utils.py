@@ -1000,6 +1000,23 @@ def get_categorized_courses(courses: list) -> dict:
 	}
 
 
+def is_draft_chapter(status: str | None) -> bool:
+	"""Whether a chapter is held back from learners.
+
+	Only an explicit "Draft" hides a chapter. Chapters created before the
+	draft/publish feature carry an empty status and stay visible, so turning
+	this on never retroactively pulls live content out of a course.
+	"""
+	return status == "Draft"
+
+
+def can_manage_chapters(course: str) -> bool:
+	"""Who may see and publish draft chapters: course editors and the admin."""
+	if frappe.session.user == "Administrator":
+		return True
+	return bool(can_modify_course(course))
+
+
 @frappe.whitelist(allow_guest=True)
 def get_course_outline(course: str, progress: bool = False) -> list:
 	"""Returns the course outline."""
@@ -1010,6 +1027,16 @@ def get_course_outline(course: str, progress: bool = False) -> list:
 	chapters = get_outline_chapter(course)
 	if not chapters:
 		return []
+
+	# Draft chapters are authoring-only: strip them (and therefore their
+	# lessons) before anything else so every outline consumer — course page,
+	# lesson sidebar, prerequisite locking — sees the learner's real course.
+	# Chapter numbering comes from `Chapter Reference.idx`, so removing rows
+	# leaves the surviving lesson numbers/URLs untouched.
+	if not can_manage_chapters(course):
+		chapters = [c for c in chapters if not is_draft_chapter(c.status)]
+		if not chapters:
+			return []
 
 	lesson_rows = get_outline_lessons([c.name for c in chapters])
 	files_by_name = get_scorm_files(chapters)
@@ -1032,6 +1059,7 @@ def get_outline_chapter(course: str) -> list:
 			ChapterReference.idx.as_("idx"),
 			CourseChapter.name.as_("name"),
 			CourseChapter.title.as_("title"),
+			CourseChapter.status.as_("status"),
 			CourseChapter.is_scorm_package.as_("is_scorm_package"),
 			CourseChapter.launch_file.as_("launch_file"),
 			CourseChapter.scorm_package.as_("scorm_package"),
@@ -1127,6 +1155,9 @@ def build_outline(
 		chapter = frappe._dict(
 			name=c.name,
 			title=c.title,
+			# Only ever non-Published for editors — learners never receive a
+			# draft chapter in the outline at all.
+			status=c.status or "Published",
 			is_scorm_package=c.is_scorm_package,
 			launch_file=c.launch_file,
 			scorm_package=c.scorm_package,
@@ -1154,12 +1185,21 @@ def get_lesson(course: str, chapter: int, lesson: int) -> dict:
 		frappe.qb.from_(ChapterReference)
 		.join(CourseChapter)
 		.on(CourseChapter.name == ChapterReference.chapter)
-		.select(ChapterReference.chapter.as_("name"), CourseChapter.title.as_("title"))
+		.select(
+			ChapterReference.chapter.as_("name"),
+			CourseChapter.title.as_("title"),
+			CourseChapter.status.as_("status"),
+		)
 		.where(ChapterReference.parent == course)
 		.where(ChapterReference.idx == chapter)
 		.limit(1)
 	).run(as_dict=1)
 	if not chapter_row:
+		return {}
+
+	# A draft chapter must stay unreachable even by direct URL, not just hidden
+	# from the outline. Answer exactly as we do for a chapter that isn't there.
+	if is_draft_chapter(chapter_row[0].status) and not can_manage_chapters(course):
 		return {}
 
 	chapter_name = chapter_row[0].name
@@ -1248,19 +1288,28 @@ def get_video_details(lesson_name: str) -> list:
 def get_neighbour_lesson(course: str, chapter: int, lesson: int) -> dict:
 	ChapterReference = frappe.qb.DocType("Chapter Reference")
 	LessonReference = frappe.qb.DocType("Lesson Reference")
+	CourseChapter = frappe.qb.DocType("Course Chapter")
 
 	rows = (
 		frappe.qb.from_(ChapterReference)
 		.join(LessonReference)
 		.on(LessonReference.parent == ChapterReference.chapter)
+		.join(CourseChapter)
+		.on(CourseChapter.name == ChapterReference.chapter)
 		.select(
 			ChapterReference.idx.as_("chapter_idx"),
 			LessonReference.idx.as_("lesson_idx"),
+			CourseChapter.status.as_("chapter_status"),
 		)
 		.where(ChapterReference.parent == course)
 		.orderby(ChapterReference.idx)
 		.orderby(LessonReference.idx)
 	).run(as_dict=True)
+
+	# Prev/Next must walk over draft chapters rather than into them, or a
+	# learner finishing the lesson before one would be handed a dead link.
+	if not can_manage_chapters(course):
+		rows = [r for r in rows if not is_draft_chapter(r.chapter_status)]
 
 	numbers = [f"{r.chapter_idx}.{r.lesson_idx}" for r in rows]
 	current = f"{chapter}.{lesson}"

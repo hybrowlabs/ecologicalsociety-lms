@@ -8,6 +8,16 @@ from lms.lms.utils import get_lesson_count
 
 
 class CourseChapter(Document):
+	def before_insert(self):
+		# New chapters start as drafts so an already published course can keep
+		# receiving content without it going live the moment it is created.
+		# The default deliberately lives here and NOT on the Select field: a
+		# doctype-level default makes Frappe emit `ADD COLUMN ... DEFAULT
+		# 'Draft'`, and MariaDB backfills existing rows with it — which would
+		# silently unpublish every chapter that existed before this feature.
+		if not self.status:
+			self.status = "Draft"
+
 	def on_update(self):
 		self.update_lesson_count()
 

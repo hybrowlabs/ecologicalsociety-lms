@@ -9,6 +9,7 @@
  "engine": "InnoDB",
  "field_order": [
   "title",
+  "status",
   "column_break_3",
   "course",
   "course_title",
@@ -44,6 +45,15 @@
    "in_list_view": 1,
    "label": "Title",
    "reqd": 1
+  },
+  {
+   "description": "Draft chapters are visible only to instructors and moderators. Publish a chapter to release it to enrolled learners.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nPublished"
   },
   {
    "fieldname": "column_break_3",

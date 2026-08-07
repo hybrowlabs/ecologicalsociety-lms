@@ -1065,7 +1065,13 @@ def give_discussions_permission():
 
 @frappe.whitelist()
 def upsert_chapter(
-	title: str, course: str, is_scorm_package: bool, scorm_package: dict = None, name: str = None, instructor: str = None
+	title: str,
+	course: str,
+	is_scorm_package: bool,
+	scorm_package: dict = None,
+	name: str = None,
+	instructor: str = None,
+	status: str = None,
 ):
 	if not isinstance(title, str):
 		frappe.throw(_("title must be a string"))
@@ -1079,6 +1085,12 @@ def upsert_chapter(
 
 	is_scorm_package = cint(is_scorm_package)
 	values = frappe._dict({"title": title, "course": course, "is_scorm_package": is_scorm_package, "instructor": instructor or None})
+
+	# Only carry a status through when the caller sent one, so editing a
+	# chapter never disturbs whether it is live. New chapters left without one
+	# fall through to CourseChapter.before_insert, i.e. Draft.
+	if status:
+		values.status = validate_chapter_status(status)
 
 	if is_scorm_package:
 		scorm_package = frappe._dict(scorm_package)
@@ -1131,7 +1143,38 @@ def upsert_chapter(
 	if is_scorm_package and not len(chapter.lessons):
 		add_lesson(title, chapter.name, course, 1)
 
-	return {"name": chapter.name, "title": chapter.title}
+	return {"name": chapter.name, "title": chapter.title, "status": chapter.status}
+
+
+CHAPTER_STATUSES = ("Draft", "Published")
+
+
+def validate_chapter_status(status: str) -> str:
+	if status not in CHAPTER_STATUSES:
+		frappe.throw(_("Status must be one of {0}.").format(", ".join(CHAPTER_STATUSES)))
+	return status
+
+
+@frappe.whitelist()
+def set_chapter_status(chapter: str, status: str) -> dict:
+	"""Publish or unpublish a single chapter of an already published course.
+
+	Publishing releases just this chapter to enrolled learners; every other
+	chapter, and the course itself, is left exactly as it was.
+	"""
+	if not isinstance(chapter, str):
+		frappe.throw(_("chapter must be a string"))
+	status = validate_chapter_status(status)
+
+	course = frappe.db.get_value("Course Chapter", chapter, "course")
+	if not course:
+		frappe.throw(_("Chapter {0} not found.").format(chapter), frappe.DoesNotExistError)
+
+	if not can_modify_course(course):
+		frappe.throw(_("You do not have permission to modify this chapter."), frappe.PermissionError)
+
+	frappe.db.set_value("Course Chapter", chapter, "status", status)
+	return {"name": chapter, "status": status}
 
 
 def extract_package(course: str, title: str, scorm_package: dict):

@@ -8,7 +8,7 @@
 				{
 					label: chapterDetail ? __('Edit') : __('Create'),
 					variant: 'solid',
-					onClick: (close) =>
+					onClick: ({ close }) =>
 						chapterDetail ? editChapter(close) : addChapter(close),
 				},
 			],
@@ -22,6 +22,28 @@
 					:required="true"
 					autocomplete="off"
 				/>
+				<!-- On create the status is fixed (the server always starts a new
+				     session as a draft), so we explain it instead of offering a
+				     control that only has one meaningful value. -->
+				<FormControl
+					v-if="chapterDetail"
+					type="select"
+					:label="__('Status')"
+					:options="statusOptions"
+					v-model="chapter.status"
+					:description="
+						chapter.status === 'Draft'
+							? __('Hidden from students until you publish it.')
+							: __('Visible to enrolled students.')
+					"
+				/>
+				<div v-else class="text-p-sm text-ink-gray-5">
+					{{
+						__(
+							'New sessions are saved as drafts. Students will not see this session until you publish it from the outline.'
+						)
+					}}
+				</div>
 				<div>
 					<label class="block mb-1.5 text-xs text-ink-gray-5">
 						{{ __('Chapter Instructor') }}
@@ -101,7 +123,12 @@ import { getFileSize } from '@/utils/'
 import { FileText, X } from 'lucide-vue-next'
 import { useTelemetry } from 'frappe-ui/frappe'
 import { useOnboarding } from '@/utils/onboarding'
-import type { ChapterDetailInput, Resource, SessionUser } from '@/types/api'
+import type {
+	ChapterDetailInput,
+	ChapterStatus,
+	Resource,
+	SessionUser,
+} from '@/types/api'
 
 type ScormPackage = { file_name: string; file_size: number } | null
 
@@ -110,7 +137,13 @@ interface ChapterForm {
 	is_scorm_package: 0 | 1
 	scorm_package: ScormPackage
 	instructor: string
+	status: ChapterStatus
 }
+
+const statusOptions: { label: string; value: ChapterStatus }[] = [
+	{ label: __('Draft'), value: 'Draft' },
+	{ label: __('Published'), value: 'Published' },
+]
 
 const show = defineModel<boolean>()
 const outline = defineModel<Resource<unknown> | undefined>('outline')
@@ -128,6 +161,7 @@ const chapter = reactive<ChapterForm>({
 	is_scorm_package: 0,
 	scorm_package: null,
 	instructor: '',
+	status: 'Draft',
 })
 
 interface InstructorOption {
@@ -165,6 +199,9 @@ const chapterResource = createResource({
 			scorm_package: chapter.scorm_package,
 			name: props.chapterDetail?.name,
 			instructor: chapter.instructor || null,
+			// Creating: leave it to the server so a new session is always a
+			// draft. Editing: send what the form shows so a status change sticks.
+			status: props.chapterDetail ? chapter.status : null,
 		}
 	},
 })
@@ -215,6 +252,7 @@ const cleanChapter = () => {
 	chapter.is_scorm_package = 0
 	chapter.scorm_package = null
 	chapter.instructor = ''
+	chapter.status = 'Draft'
 }
 
 const editChapter = (close: () => void) => {
@@ -245,6 +283,8 @@ watch(
 		chapter.is_scorm_package = (newChapter?.is_scorm_package ?? 0) as 0 | 1
 		chapter.scorm_package = (newChapter?.scorm_package ?? null) as ScormPackage
 		chapter.instructor = newChapter?.instructor ?? ''
+		// A chapter created before this feature has no status and is live.
+		chapter.status = newChapter?.status ?? 'Published'
 	}
 )
 

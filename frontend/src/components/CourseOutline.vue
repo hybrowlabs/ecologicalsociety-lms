@@ -65,6 +65,7 @@
 							@select-lesson="(payload) => emit('select-lesson', payload)"
 							@edit-chapter="openChapterModal"
 							@delete-chapter="trashChapter"
+							@set-chapter-status="setChapterStatus"
 							@delete-lesson="
 								({ lesson, chapter: chapterName }) =>
 									trashLesson(lesson, chapterName)
@@ -107,6 +108,7 @@ import ChapterModal from '@/components/Modals/ChapterModal.vue'
 import LessonModal from '@/components/Modals/LessonModal.vue'
 import ChapterRow from '@/components/ChapterRow.vue'
 import type {
+	ChapterStatus,
 	OutlineChapter,
 	OutlineLesson,
 	Resource,
@@ -373,6 +375,36 @@ const deleteChapter = createResource({
 		toast.success(__('Chapter deleted successfully'))
 	},
 })
+
+const chapterStatus = createResource({
+	url: 'lms.lms.api.set_chapter_status',
+	makeParams(values: { chapter: string; status: ChapterStatus }) {
+		return values
+	},
+})
+
+function setChapterStatus(payload: { chapter: string; status: ChapterStatus }) {
+	chapterStatus.submit(payload, {
+		onSuccess() {
+			// Refetch rather than patch locally: publishing a session changes what
+			// the outline endpoint returns, and for the author it also changes
+			// nothing else — so a reload is both correct and cheap.
+			outline.reload()
+			toast.success(
+				payload.status === 'Published'
+					? __('Session published. It is now visible to enrolled students.')
+					: __('Session moved to draft. It is now hidden from students.')
+			)
+		},
+		onError(err: { messages?: string[] } | string) {
+			toast.error(
+				typeof err === 'string'
+					? err
+					: err.messages?.[0] ?? __('Could not update the session status')
+			)
+		},
+	})
+}
 
 const findLessonNumberByName = (lessonName: string) => {
 	if (!outline.data) return null
