@@ -29,6 +29,7 @@
   "column_break_viqw",
   "description",
   "section_break_gglp",
+  "modules",
   "chapters",
   "related_courses",
   "pricing_tab",
@@ -110,6 +111,13 @@
    "fieldname": "upcoming",
    "fieldtype": "Check",
    "label": "Upcoming"
+  },
+  {
+   "description": "Optional grouping level above chapters. The order of rows here is the order modules appear in the course outline.",
+   "fieldname": "modules",
+   "fieldtype": "Table",
+   "label": "Modules",
+   "options": "Module Reference"
   },
   {
    "fieldname": "chapters",

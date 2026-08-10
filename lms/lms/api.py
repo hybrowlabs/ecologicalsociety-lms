@@ -702,6 +702,217 @@ def update_chapter_index(chapter: str, course: str, idx: int):
 		frappe.db.set_value("Chapter Reference", {"chapter": chapter_name, "parent": course}, "idx", i + 1)
 
 
+# ---------------------------------------------------------------------------
+# Course modules — an optional grouping level above chapters/sessions, so a
+# course with 60+ sessions can be navigated as a handful of collapsible groups.
+#
+# The grouping is deliberately a thin layer: `Chapter Reference.idx` stays the
+# one source of session order (a lesson URL is built from it), and a module only
+# decides how that order is chunked. A course with no modules keeps behaving
+# exactly as it did before, and so does a session that belongs to none.
+# ---------------------------------------------------------------------------
+
+
+def assert_can_modify_course(course: str):
+	if not can_modify_course(course):
+		frappe.throw(_("You do not have permission to modify this course."), frappe.PermissionError)
+
+
+def get_module_order(course: str) -> list:
+	"""Module names in the order they appear in the course outline."""
+	return frappe.get_all("Module Reference", {"parent": course}, pluck="module", order_by="idx")
+
+
+def resequence_chapters(course: str, moved: str = None, module: str = None, idx: int = 0):
+	"""Renumber a course's sessions so each module's sessions sit together.
+
+	The resulting order is: every module in course order carrying its own
+	sessions in their current relative order, then ungrouped sessions last.
+	Passing `moved` additionally lifts that session out of wherever it is and
+	drops it at position `idx` of `module` (None = the ungrouped group).
+	"""
+	chapters = frappe.get_all("Chapter Reference", {"parent": course}, pluck="chapter", order_by="idx")
+	if not chapters:
+		return
+
+	module_of = dict(
+		frappe.get_all(
+			"Course Chapter",
+			{"name": ("in", chapters)},
+			["name", "module"],
+			as_list=True,
+		)
+	)
+
+	# One bucket per module (in course order) plus a trailing bucket for the
+	# sessions that belong to no module — new sessions land there, and so does
+	# every session of a course that was never organised.
+	order = get_module_order(course)
+	buckets = {name: [] for name in order}
+	ungrouped = []
+	for chapter in chapters:
+		if moved and chapter == moved:
+			continue
+		buckets.get(module_of.get(chapter), ungrouped).append(chapter)
+
+	if moved:
+		target = buckets.get(module) if module else ungrouped
+		if target is None:  # module isn't on this course — treat as ungrouped
+			target = ungrouped
+		target.insert(max(0, cint(idx)), moved)
+
+	sequenced = [c for name in order for c in buckets[name]] + ungrouped
+	for i, chapter in enumerate(sequenced):
+		frappe.db.set_value("Chapter Reference", {"chapter": chapter, "parent": course}, "idx", i + 1)
+
+
+@frappe.whitelist()
+def upsert_module(course: str, title: str, name: str = None, description: str = None) -> dict:
+	"""Create a module on a course, or rename/redescribe an existing one."""
+	if not isinstance(course, str) or not isinstance(title, str):
+		frappe.throw(_("course and title must be strings"))
+	title = title.strip()
+	if not title:
+		frappe.throw(_("Title is required"))
+
+	assert_can_modify_course(course)
+
+	if name:
+		module = frappe.get_doc("Course Module", name)
+		if module.course != course:
+			frappe.throw(_("Module {0} does not belong to this course.").format(name))
+		module.title = title
+		module.description = description
+		module.save(ignore_permissions=True)
+	else:
+		module = frappe.new_doc("Course Module")
+		module.update({"course": course, "title": title, "description": description})
+		module.save(ignore_permissions=True)
+
+		# Append the ordering row directly rather than saving LMS Course: the
+		# course's own save hooks can raise on unrelated validations and would
+		# fail an operation that has already succeeded (same reasoning as
+		# `upsert_chapter`).
+		ref = frappe.new_doc("Module Reference")
+		ref.update(
+			{
+				"module": module.name,
+				"parent": course,
+				"parenttype": "LMS Course",
+				"parentfield": "modules",
+				"idx": frappe.db.count("Module Reference", {"parent": course, "parenttype": "LMS Course"}) + 1,
+			}
+		)
+		ref.insert(ignore_permissions=True)
+
+	return {"name": module.name, "title": module.title, "description": module.description}
+
+
+@frappe.whitelist()
+def delete_module(module: str) -> dict:
+	"""Delete a module. Its sessions survive — they just become ungrouped."""
+	course = frappe.db.get_value("Course Module", module, "course")
+	if not course:
+		frappe.throw(_("Module {0} not found.").format(module), frappe.DoesNotExistError)
+
+	assert_can_modify_course(course)
+
+	# `CourseModule.on_trash` unlinks the sessions and drops the ordering row.
+	frappe.delete_doc("Course Module", module, ignore_permissions=True)
+
+	modules = get_module_order(course)
+	for i, name in enumerate(modules):
+		frappe.db.set_value("Module Reference", {"parent": course, "module": name}, "idx", i + 1)
+	resequence_chapters(course)
+	return {"course": course}
+
+
+@frappe.whitelist()
+def update_module_index(module: str, course: str, idx: int) -> dict:
+	"""Move a module to position `idx` (0-based) in the course outline.
+
+	Sessions follow their module, so this renumbers them too — the outline and
+	the session numbering never disagree.
+	"""
+	assert_can_modify_course(course)
+
+	modules = get_module_order(course)
+	if module in modules:
+		modules.remove(module)
+	modules.insert(max(0, cint(idx)), module)
+
+	for i, name in enumerate(modules):
+		frappe.db.set_value("Module Reference", {"parent": course, "module": name}, "idx", i + 1)
+
+	resequence_chapters(course)
+	return {"course": course}
+
+
+@frappe.whitelist()
+def update_chapter_placement(course: str, chapter: str, module: str = None, idx: int = 0) -> dict:
+	"""Put a session into a module (or none) at position `idx` within it."""
+	assert_can_modify_course(course)
+
+	if frappe.db.get_value("Chapter Reference", {"parent": course, "chapter": chapter}) is None:
+		frappe.throw(_("Chapter {0} is not part of this course.").format(chapter))
+
+	if module:
+		if frappe.db.get_value("Course Module", module, "course") != course:
+			frappe.throw(_("Module {0} does not belong to this course.").format(module))
+
+	frappe.db.set_value("Course Chapter", chapter, "module", module or None)
+	resequence_chapters(course, moved=chapter, module=module or None, idx=idx)
+	return {"chapter": chapter, "module": module or None}
+
+
+@frappe.whitelist()
+def auto_create_modules(
+	course: str, chapters_per_module: int, title_prefix: str = None, replace_existing: bool = False
+) -> dict:
+	"""Split a course's existing sessions into modules of a chosen size.
+
+	This is the migration path for courses that predate modules: it walks the
+	sessions in their current order and slices them into groups, so no session
+	changes position and no lesson URL changes. The group size is the caller's
+	choice — nothing about it is fixed in code.
+	"""
+	assert_can_modify_course(course)
+
+	size = cint(chapters_per_module)
+	if size < 1:
+		frappe.throw(_("A module must hold at least one session."))
+
+	if cint(replace_existing):
+		for module in get_module_order(course):
+			frappe.delete_doc("Course Module", module, ignore_permissions=True)
+
+	chapters = frappe.get_all("Chapter Reference", {"parent": course}, pluck="chapter", order_by="idx")
+	if not chapters:
+		return {"modules": [], "chapters_organised": 0}
+
+	# Only sessions that aren't already in a module get organised, so running
+	# this again after adding sessions tops up the structure instead of
+	# scrambling the grouping an author has already curated.
+	grouped = set(
+		frappe.get_all("Course Chapter", {"name": ("in", chapters), "module": ("is", "set")}, pluck="name")
+	)
+	pending = [c for c in chapters if c not in grouped]
+	if not pending:
+		return {"modules": [], "chapters_organised": 0}
+
+	prefix = (title_prefix or _("Module")).strip() or _("Module")
+	created = []
+	start = len(get_module_order(course))
+	for offset in range(0, len(pending), size):
+		module = upsert_module(course, f"{prefix} {start + len(created) + 1}")
+		for chapter in pending[offset : offset + size]:
+			frappe.db.set_value("Course Chapter", chapter, "module", module["name"])
+		created.append(module)
+
+	resequence_chapters(course)
+	return {"modules": created, "chapters_organised": len(pending)}
+
+
 @frappe.whitelist()
 def get_members(start: int = 0, search: str = None):
 	frappe.only_for(["Moderator"])

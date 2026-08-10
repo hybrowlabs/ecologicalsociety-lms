@@ -40,45 +40,70 @@
 				'border-2 rounded-md py-2 px-2': showOutline && outline.data?.length,
 			}"
 		>
+			<!-- Grouped view: modules first, their sessions inside. A course with no
+			     modules falls through to the flat list below and renders exactly as
+			     it always has, so nothing about an existing course changes until
+			     someone organizes it. -->
 			<Draggable
-				:list="outline.data"
+				v-if="hasModules"
+				:list="groups"
 				:disabled="!allowEdit"
-				item-key="name"
-				group="chapters"
-				@end="updateChapterOrder"
+				:item-key="groupKey"
+				handle=".module-drag-handle"
+				group="modules"
+				@end="updateModuleOrder"
 			>
-				<template #item="{ element: chapter, index }">
-					<div class="chapter-item">
-						<ChapterRow
-							:chapter="chapter"
-							:index="index"
-							:courseName="courseName"
-							:allowEdit="allowEdit"
-							:inlineSelect="inlineSelect"
-							:editorLinks="editorLinks"
-							:selectedLessonNumber="selectedLessonNumber"
-							:isEnrolled="isEnrolled"
-							:chaptersOnly="chaptersOnly"
-							:relabelChapters="relabelChapters"
-							:isOpen="isChapterOpen(chapter)"
-							@toggle="onToggleChapter"
-							@select-lesson="(payload) => emit('select-lesson', payload)"
-							@edit-chapter="openChapterModal"
-							@delete-chapter="trashChapter"
-							@set-chapter-status="setChapterStatus"
-							@delete-lesson="
-								({ lesson, chapter: chapterName }) =>
-									trashLesson(lesson, chapterName)
-							"
-							@move-lesson="updateOutline"
-							@add-lesson="openLessonModalForAdd"
-							@edit-lesson="openLessonModalForEdit"
+				<template #item="{ element: group }">
+					<ModuleRow
+						:group="group"
+						:isOpen="openModules.has(group.name)"
+						:allowEdit="allowEdit"
+						:isUngrouped="!group.name"
+						:isCurrent="isCurrentModule(group)"
+						:showProgress="getProgress"
+						@toggle="onToggleModule(group)"
+						@edit="openModuleModal(group)"
+						@delete="trashModule(group)"
+					>
+						<ChapterList
+							v-bind="chapterProps"
+							v-on="chapterHandlers"
+							:chapters="group.chapters"
+							:moduleName="group.name"
+							@reorder="updateChapterPlacement"
 						/>
-					</div>
+						<div v-if="allowEdit && !group.chapters.length" class="px-3 py-4 text-sm text-ink-gray-5">
+							{{ __('Drag sessions here to add them to this module.') }}
+						</div>
+					</ModuleRow>
 				</template>
 			</Draggable>
+			<ChapterList
+				v-else
+				v-bind="chapterProps"
+				v-on="chapterHandlers"
+				:chapters="outline.data || []"
+				:moduleName="null"
+				@reorder="updateChapterOrder"
+			/>
 		</div>
 	</div>
+	<ModuleModal
+		v-if="user.data"
+		v-model="showModuleModal"
+		:course="courseName"
+		:moduleDetail="currentModule"
+		@saved="onModuleSaved"
+	/>
+	<OrganizeModulesModal
+		v-if="user.data"
+		v-model="showOrganizeModal"
+		:course="courseName"
+		:ungroupedCount="ungroupedChapterCount"
+		:totalCount="outline.data?.length || 0"
+		:hasModules="hasModules"
+		@organized="reloadOutline"
+	/>
 	<ChapterModal
 		v-if="user.data"
 		v-model="showChapterModal"
@@ -106,19 +131,31 @@ import Draggable from 'vuedraggable'
 import { BookOpen, Plus } from 'lucide-vue-next'
 import ChapterModal from '@/components/Modals/ChapterModal.vue'
 import LessonModal from '@/components/Modals/LessonModal.vue'
-import ChapterRow from '@/components/ChapterRow.vue'
+import ModuleModal from '@/components/Modals/ModuleModal.vue'
+import OrganizeModulesModal from '@/components/Modals/OrganizeModulesModal.vue'
+import ChapterList from '@/components/ChapterList.vue'
+import ModuleRow from '@/components/ModuleRow.vue'
+import {
+	groupChaptersByModule,
+	groupOfChapterIdx,
+	groupOfLesson,
+} from '@/utils/courseModules'
 import type {
 	ChapterStatus,
+	CourseModule,
 	OutlineChapter,
+	OutlineGroup,
 	OutlineLesson,
 	Resource,
 	SessionUser,
 } from '@/types/api'
 
 interface DraggableEvent {
-	item: { __draggable_context: { element: OutlineChapter | OutlineLesson } }
-	from: { dataset: { chapter: string } }
-	to: { dataset: { chapter: string } }
+	item: {
+		__draggable_context: { element: OutlineChapter | OutlineLesson | OutlineGroup }
+	}
+	from: { dataset: { chapter: string; module: string } }
+	to: { dataset: { chapter: string; module: string } }
 	newIndex: number
 }
 
@@ -253,7 +290,7 @@ const props = withDefaults(
 	}
 )
 
-defineExpose({ openChapterModal })
+defineExpose({ openChapterModal, openModuleModal, openOrganizeModal })
 
 const outline = createResource({
 	url: 'lms.lms.utils.get_course_outline',
@@ -264,9 +301,55 @@ const outline = createResource({
 	auto: true,
 }) as Resource<OutlineChapter[] | null>
 
+const modules = createResource({
+	url: 'lms.lms.utils.get_course_modules',
+	cache: ['course_modules', props.courseName],
+	makeParams() {
+		return { course: props.courseName }
+	},
+	auto: true,
+}) as Resource<CourseModule[] | null>
+
 watch(
 	() => props.courseName,
-	() => outline.reload()
+	() => {
+		outline.reload()
+		modules.reload()
+	}
+)
+
+function reloadOutline() {
+	outline.reload()
+	modules.reload()
+}
+
+// The outline stays a flat list of sessions on the wire; the module grouping is
+// folded in here. Held in a ref rather than a computed because vuedraggable
+// mutates these arrays as you drag — the next reload rebuilds them from the
+// server, which is the authoritative order.
+const groups = ref<OutlineGroup[]>([])
+watch(
+	[() => outline.data, () => modules.data, () => props.allowEdit],
+	() => {
+		groups.value = groupChaptersByModule(
+			outline.data,
+			modules.data,
+			__('Other Sessions'),
+			props.allowEdit
+		)
+	},
+	{ immediate: true, deep: true }
+)
+
+const hasModules = computed<boolean>(() => groups.value.length > 0)
+
+// The ungrouped bucket has no module name, so it needs a stable stand-in key.
+function groupKey(group: OutlineGroup): string {
+	return group.name ?? '__ungrouped__'
+}
+
+const ungroupedChapterCount = computed<number>(
+	() => (outline.data || []).filter((c) => !c.module).length
 )
 
 // Session expand/collapse is controlled here so an outline reload can never
@@ -276,10 +359,6 @@ watch(
 // sessions expand independently so lessons can be dragged between them.
 const openChapters = ref<Set<string>>(new Set())
 const accordion = computed<boolean>(() => !props.allowEdit && !props.chaptersOnly)
-
-function isChapterOpen(chapter: OutlineChapter): boolean {
-	return openChapters.value.has(chapter.name)
-}
 
 function onToggleChapter(chapter: OutlineChapter) {
 	const next = new Set(openChapters.value)
@@ -297,19 +376,257 @@ function onToggleChapter(chapter: OutlineChapter) {
 
 // Seed the open session once, when the outline first loads: the session named
 // in the route, otherwise the first session (matches the previous default).
+// With modules there is no first-session default — the point of grouping is to
+// open on a short list of module headings, not on a session's lessons.
 let outlineInitialized = false
 watch(
-	() => outline.data,
-	(data) => {
-		if (!data || outlineInitialized) return
+	[() => outline.data, () => modules.data],
+	([data, moduleList]) => {
+		if (!data || !moduleList || outlineInitialized) return
 		outlineInitialized = true
 		const activeIdx = Number(route.params.chapterNumber) || null
 		const active =
-			(activeIdx && data.find((c) => c.idx === activeIdx)) || data[0]
+			(activeIdx && data.find((c) => c.idx === activeIdx)) ||
+			(moduleList.length ? null : data[0])
 		openChapters.value = new Set(active ? [active.name] : [])
 	},
 	{ immediate: true }
 )
+
+// ---------------------------------------------------------------------------
+// Modules
+// ---------------------------------------------------------------------------
+
+// Which modules are expanded. Read-only outlines are an accordion (one at a
+// time, so the list of modules stays scannable); the editor lets several stay
+// open at once because dragging a session between two modules needs both of
+// their lists on screen.
+const openModules = ref<Set<string | null>>(new Set())
+
+// `null` is a real module key (the ungrouped bucket), so "no current module" is
+// `undefined` rather than null.
+const currentModuleName = computed<string | null | undefined>(() => {
+	const byLesson = groupOfLesson(groups.value, props.selectedLessonNumber)
+	if (byLesson) return byLesson.name
+	const byChapter = groupOfChapterIdx(
+		groups.value,
+		Number(route.params.chapterNumber) || null
+	)
+	return byChapter ? byChapter.name : undefined
+})
+
+function isCurrentModule(group: OutlineGroup): boolean {
+	return currentModuleName.value !== undefined && currentModuleName.value === group.name
+}
+
+function onToggleModule(group: OutlineGroup) {
+	const next = new Set(openModules.value)
+	const isOpen = next.has(group.name)
+	if (!props.allowEdit) next.clear()
+	if (!isOpen) next.add(group.name)
+	else next.delete(group.name)
+	openModules.value = next
+}
+
+// Seed once: open the module holding the current lesson so the learner can see
+// where they are. Otherwise everything stays collapsed for a learner (that is
+// the whole feature) while the editor opens the first module to work in.
+let modulesInitialized = false
+watch(
+	groups,
+	(list) => {
+		if (!list.length || modulesInitialized) return
+		modulesInitialized = true
+		const current = currentModuleName.value
+		if (current !== undefined) openModules.value = new Set([current])
+		else if (props.allowEdit) openModules.value = new Set([list[0].name])
+	},
+	{ immediate: true }
+)
+
+// Following a lesson link into another module expands it, so the outline always
+// shows the learner where they now are.
+watch(
+	() => currentModuleName.value,
+	(name) => {
+		if (name === undefined) return
+		const next = props.allowEdit ? new Set(openModules.value) : new Set<string | null>()
+		next.add(name)
+		openModules.value = next
+	}
+)
+
+// Bundled once and spread at both ChapterList call sites (grouped and flat) so
+// the two can never drift apart.
+const chapterProps = computed(() => ({
+	courseName: props.courseName,
+	openChapters: openChapters.value,
+	allowEdit: props.allowEdit,
+	inlineSelect: props.inlineSelect,
+	editorLinks: props.editorLinks,
+	selectedLessonNumber: props.selectedLessonNumber,
+	isEnrolled: props.isEnrolled,
+	chaptersOnly: props.chaptersOnly,
+	relabelChapters: props.relabelChapters,
+}))
+
+const chapterHandlers = {
+	toggle: onToggleChapter,
+	'select-lesson': (payload: { chapterNumber: string; lessonNumber: string }) =>
+		emit('select-lesson', payload),
+	'edit-chapter': (chapter: OutlineChapter) => openChapterModal(chapter),
+	'delete-chapter': (chapterName: string) => trashChapter(chapterName),
+	'set-chapter-status': (payload: { chapter: string; status: ChapterStatus }) =>
+		setChapterStatus(payload),
+	'delete-lesson': ({ lesson, chapter }: { lesson: string; chapter: string }) =>
+		trashLesson(lesson, chapter),
+	'move-lesson': (e: DraggableEvent) => updateOutline(e),
+	'add-lesson': (payload: { chapter: OutlineChapter; lessonIdx: number }) =>
+		openLessonModalForAdd(payload),
+	'edit-lesson': (payload: { chapter: OutlineChapter; lesson: OutlineLesson }) =>
+		openLessonModalForEdit(payload),
+}
+
+const showModuleModal = ref<boolean>(false)
+const showOrganizeModal = ref<boolean>(false)
+const currentModule = ref<CourseModule | null>(null)
+
+function openModuleModal(group: OutlineGroup | CourseModule | null = null) {
+	// The ungrouped bucket is not a real module, so it has nothing to rename.
+	const name = group && 'name' in group ? group.name : null
+	currentModule.value = name
+		? ({
+				name,
+				title: group!.title,
+				description: (group as OutlineGroup).description,
+				idx: 0,
+		  } as CourseModule)
+		: null
+	showModuleModal.value = true
+}
+
+function openOrganizeModal() {
+	showOrganizeModal.value = true
+}
+
+// Expand a freshly created module: it is empty, and an author's next move is to
+// drag sessions into it — which needs its (collapsed) body on screen.
+function onModuleSaved(saved: { name: string }) {
+	openModules.value = new Set([...openModules.value, saved.name])
+	reloadOutline()
+}
+
+const deleteModule = createResource({
+	url: 'lms.lms.api.delete_module',
+	makeParams(values: { module: string }) {
+		return values
+	},
+})
+
+function trashModule(group: OutlineGroup) {
+	if (!group.name) return
+	$dialog({
+		title: __('Delete this module?'),
+		message: __(
+			'The sessions inside it are kept — they simply stop being grouped and move to the end of the outline. This cannot be undone.'
+		),
+		actions: [
+			{
+				label: __('Delete'),
+				theme: 'red',
+				variant: 'solid',
+				onClick(close) {
+					deleteModule.submit(
+						{ module: group.name as string },
+						{
+							onSuccess() {
+								reloadOutline()
+								toast.success(__('Module deleted successfully'))
+							},
+							onError(err: { messages?: string[] } | string) {
+								toast.error(
+									typeof err === 'string'
+										? err
+										: err.messages?.[0] ?? __('Could not delete the module')
+								)
+							},
+						}
+					)
+					close()
+				},
+			},
+		],
+	})
+}
+
+const updateModuleIndex = createResource({
+	url: 'lms.lms.api.update_module_index',
+	makeParams(values: { module: string; course: string; idx: number }) {
+		return values
+	},
+})
+
+function updateModuleOrder(e: DraggableEvent) {
+	const group = e.item.__draggable_context.element as OutlineGroup
+	// The ungrouped bucket is a rendering device, not a module — it has nothing
+	// to reorder and always sits last.
+	if (!group.name) {
+		reloadOutline()
+		return
+	}
+	updateModuleIndex.submit(
+		{
+			module: group.name,
+			course: props.courseName,
+			idx: e.newIndex,
+		},
+		{
+			onSuccess() {
+				// Sessions are renumbered to follow their module, so the outline has
+				// to come back from the server rather than be patched locally.
+				reloadOutline()
+				toast.success(__('Module moved successfully'))
+			},
+		}
+	)
+}
+
+const chapterPlacement = createResource({
+	url: 'lms.lms.api.update_chapter_placement',
+	makeParams(values: {
+		course: string
+		chapter: string
+		module: string | null
+		idx: number
+	}) {
+		return values
+	},
+})
+
+function updateChapterPlacement(e: DraggableEvent) {
+	chapterPlacement.submit(
+		{
+			course: props.courseName,
+			chapter: e.item.__draggable_context.element.name,
+			module: e.to.dataset.module || null,
+			idx: e.newIndex,
+		},
+		{
+			onSuccess() {
+				reloadOutline()
+				toast.success(__('Session moved successfully'))
+			},
+			onError(err: { messages?: string[] } | string) {
+				reloadOutline()
+				toast.error(
+					typeof err === 'string'
+						? err
+						: err.messages?.[0] ?? __('Could not move the session')
+				)
+			},
+		}
+	)
+}
 
 watch(
 	() => props.completedLesson,

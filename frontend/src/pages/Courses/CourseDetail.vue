@@ -133,12 +133,14 @@
 					<div class="py-2.5 font-medium text-base text-ink-gray-9">
 						{{ __('Sessions') }}
 					</div>
-					<Button size="sm" @click="courseEditorRef?.openAddChapter()">
-						<template #prefix>
-							<Plus class="size-4 stroke-1.5" />
-						</template>
-						{{ __('Add') }}
-					</Button>
+					<Dropdown :options="outlineActions" side="bottom" align="end">
+						<Button size="sm">
+							<template #prefix>
+								<Plus class="size-4 stroke-1.5" />
+							</template>
+							{{ __('Add') }}
+						</Button>
+					</Dropdown>
 				</div>
 			</div>
 		</div>
@@ -236,8 +238,30 @@ type CourseEditorApi = {
 	previewNext: () => void
 	previewZen: () => void
 	openAddChapter: () => void
+	openAddModule: () => void
+	openOrganizeModules: () => void
 }
 const courseEditorRef = ref<CourseEditorApi | null>(null)
+
+// Sessions and the modules that group them are authored from the same button:
+// both live in the outline, and an author reaching for "Add" may want either.
+const outlineActions = computed(() => [
+	{
+		label: __('Add Session'),
+		icon: 'file-plus',
+		onClick: () => courseEditorRef.value?.openAddChapter(),
+	},
+	{
+		label: __('Add Module'),
+		icon: 'folder-plus',
+		onClick: () => courseEditorRef.value?.openAddModule(),
+	},
+	{
+		label: __('Organize into Modules'),
+		icon: 'layers',
+		onClick: () => courseEditorRef.value?.openOrganizeModules(),
+	},
+])
 
 const publishToggle = createResource({
 	url: 'frappe.client.set_value',

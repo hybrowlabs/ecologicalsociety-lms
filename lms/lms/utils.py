@@ -1045,6 +1045,35 @@ def get_course_outline(course: str, progress: bool = False) -> list:
 	return build_outline(chapters, lesson_rows, files_by_name, completed, progress)
 
 
+@frappe.whitelist(allow_guest=True)
+def get_course_modules(course: str) -> list:
+	"""Ordered list of the modules a course's sessions are grouped into.
+
+	Returned separately from `get_course_outline` (which must keep its flat
+	list-of-chapters shape — every existing consumer, including the app-level
+	overrides, depends on it). A course that has never been organised returns
+	an empty list, and the outline then renders exactly as it always did.
+	"""
+	if not guest_access_allowed():
+		return []
+
+	ModuleReference = frappe.qb.DocType("Module Reference")
+	CourseModule = frappe.qb.DocType("Course Module")
+	return (
+		frappe.qb.from_(ModuleReference)
+		.join(CourseModule)
+		.on(CourseModule.name == ModuleReference.module)
+		.select(
+			ModuleReference.idx.as_("idx"),
+			CourseModule.name.as_("name"),
+			CourseModule.title.as_("title"),
+			CourseModule.description.as_("description"),
+		)
+		.where(ModuleReference.parent == course)
+		.orderby(ModuleReference.idx)
+	).run(as_dict=True)
+
+
 def get_outline_chapter(course: str) -> list:
 	ChapterReference = frappe.qb.DocType("Chapter Reference")
 	CourseChapter = frappe.qb.DocType("Course Chapter")
@@ -1060,6 +1089,7 @@ def get_outline_chapter(course: str) -> list:
 			CourseChapter.name.as_("name"),
 			CourseChapter.title.as_("title"),
 			CourseChapter.status.as_("status"),
+			CourseChapter.module.as_("module"),
 			CourseChapter.is_scorm_package.as_("is_scorm_package"),
 			CourseChapter.launch_file.as_("launch_file"),
 			CourseChapter.scorm_package.as_("scorm_package"),
@@ -1158,6 +1188,11 @@ def build_outline(
 			# Only ever non-Published for editors — learners never receive a
 			# draft chapter in the outline at all.
 			status=c.status or "Published",
+			# The module this session is grouped under, or None when the course
+			# has never been organised into modules (or this session was added
+			# after the fact). Consumers group on this and fall back to a flat
+			# list, so an outline stays valid either way.
+			module=c.module,
 			is_scorm_package=c.is_scorm_package,
 			launch_file=c.launch_file,
 			scorm_package=c.scorm_package,

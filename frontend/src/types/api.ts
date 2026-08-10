@@ -88,12 +88,35 @@ export interface OutlineChapter {
 	// Only editors ever receive a 'Draft' chapter — the API filters them out
 	// of a learner's outline entirely.
 	status?: ChapterStatus
+	// The module this session is grouped under. Null/absent on a course that
+	// has never been organised into modules — the outline then stays flat.
+	module?: string | null
 	is_scorm_package?: 0 | 1
 	scorm_package?: { file_name: string; file_size: number } | null
 	lessons?: OutlineLesson[]
 	instructor?: string | null
 	instructor_name?: string | null
 	instructor_username?: string | null
+}
+
+export interface CourseModule {
+	name: string
+	title: string
+	description?: string | null
+	idx: number
+}
+
+/**
+ * A module and the sessions inside it, as rendered in the outline. The trailing
+ * group of sessions that belong to no module is represented with `name: null`.
+ */
+export interface OutlineGroup {
+	name: string | null
+	title: string
+	description?: string | null
+	chapters: OutlineChapter[]
+	lessonCount: number
+	completedCount: number
 }
 
 export interface CertificationInfo {

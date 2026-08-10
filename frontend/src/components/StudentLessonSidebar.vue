@@ -19,7 +19,41 @@
 		</div>
 
 		<div class="flex-1 overflow-y-auto px-2 py-3">
-			<div v-for="chapter in outline.data || []" :key="chapter.name">
+			<template v-for="group in renderGroups" :key="group.key">
+				<!-- Module header. Present only once a course has been organized into
+				     modules; otherwise `renderGroups` is a single headerless group and
+				     this sidebar looks exactly as it did before. -->
+				<button
+					v-if="group.isModule"
+					type="button"
+					class="w-full flex items-center gap-2 rounded px-3 py-2 mt-1 text-left hover:bg-surface-gray-2"
+					:class="group.name === currentModule ? 'bg-surface-gray-2' : ''"
+					@click="toggleModule(group.name)"
+				>
+					<ChevronDown
+						class="size-4 stroke-1.5 shrink-0 transition-transform"
+						:class="{ '-rotate-90': openModule !== group.name }"
+					/>
+					<div class="min-w-0 flex-1">
+						<div class="truncate text-sm font-semibold text-ink-gray-9">
+							{{ group.title }}
+						</div>
+						<div class="text-xs text-ink-gray-5 mt-0.5">
+							<template v-if="withProgress">
+								{{ group.completedCount }}/{{ group.lessonCount }}
+								{{ __('lessons complete') }}
+							</template>
+							<template v-else>
+								{{ group.chapters.length }} {{ __('sessions') }}
+							</template>
+						</div>
+					</div>
+				</button>
+				<div
+					v-show="!group.isModule || openModule === group.name"
+					:class="group.isModule ? 'ps-2' : ''"
+				>
+			<div v-for="chapter in group.chapters" :key="chapter.name">
 				<!-- Accordion: exactly one session is expanded at a time. Clicking a
 				     collapsed session opens it and closes the previous one; clicking
 				     the open session collapses it and it stays collapsed (no session
@@ -85,6 +119,8 @@
 					</component>
 				</div>
 			</div>
+				</div>
+			</template>
 		</div>
 	</div>
 </template>
@@ -104,6 +140,7 @@ import {
 	NotebookPen,
 	SquareCode,
 } from 'lucide-vue-next'
+import { groupChaptersByModule, groupOfLesson } from '@/utils/courseModules'
 
 const props = defineProps({
 	courseName: { type: String, required: true },
@@ -139,9 +176,82 @@ const outline = createResource({
 	auto: true,
 })
 
+const modules = createResource({
+	url: 'lms.lms.utils.get_course_modules',
+	cache: ['course_modules', props.courseName],
+	makeParams() {
+		return { course: props.courseName }
+	},
+	auto: true,
+})
+
 watch(
 	() => props.courseName,
-	() => outline.reload()
+	() => {
+		outline.reload()
+		modules.reload()
+	}
+)
+
+const groups = computed(() =>
+	groupChaptersByModule(outline.data, modules.data, __('Other Sessions'))
+)
+
+// One shape for the template whether or not this course uses modules: with no
+// modules it is a single headerless group holding every session, which renders
+// identically to how this sidebar looked before modules existed.
+const renderGroups = computed(() => {
+	if (!groups.value.length) {
+		return [
+			{
+				key: '__flat__',
+				isModule: false,
+				name: null,
+				title: '',
+				chapters: outline.data || [],
+				lessonCount: 0,
+				completedCount: 0,
+			},
+		]
+	}
+	return groups.value.map((group) => ({
+		...group,
+		key: group.name ?? '__ungrouped__',
+		isModule: true,
+	}))
+})
+
+// The module holding the lesson being viewed — highlighted so a learner always
+// knows where they are in a course with dozens of sessions.
+const currentModule = computed(() => {
+	const group = groupOfLesson(groups.value, props.selectedLessonNumber)
+	return group ? group.name : undefined
+})
+
+// Only one module is expanded at a time; opening another collapses it.
+const openModule = ref(null)
+let moduleInitialized = false
+
+function toggleModule(name) {
+	openModule.value = openModule.value === name ? null : name
+}
+
+watch(
+	[groups, currentModule],
+	([list, current]) => {
+		if (!list.length) return
+		// Seed once on the module holding the current lesson, then follow the
+		// learner as they navigate into a different module.
+		if (!moduleInitialized) {
+			moduleInitialized = true
+			openModule.value = current !== undefined ? current : list[0].name
+			return
+		}
+		if (current !== undefined && current !== openModule.value) {
+			openModule.value = current
+		}
+	},
+	{ immediate: true }
 )
 
 // Completing a lesson can unlock the next one, but `is_locked` is derived

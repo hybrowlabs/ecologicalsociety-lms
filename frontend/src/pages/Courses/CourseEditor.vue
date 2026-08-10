@@ -320,6 +320,14 @@ function openAddChapter() {
 	courseOutlineRef.value?.openChapterModal?.(null)
 }
 
+function openAddModule() {
+	courseOutlineRef.value?.openModuleModal?.(null)
+}
+
+function openOrganizeModules() {
+	courseOutlineRef.value?.openOrganizeModal?.()
+}
+
 defineExpose({
 	saveSelectedLesson,
 	isDirty,
@@ -330,5 +338,7 @@ defineExpose({
 	previewNext,
 	previewZen,
 	openAddChapter,
+	openAddModule,
+	openOrganizeModules,
 })
 </script>

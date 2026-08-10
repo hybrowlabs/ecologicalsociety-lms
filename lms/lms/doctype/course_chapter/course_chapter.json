@@ -12,6 +12,7 @@
   "status",
   "column_break_3",
   "course",
+  "module",
   "course_title",
   "instructor",
   "scorm_section",
@@ -38,6 +39,13 @@
    "label": "Course",
    "options": "LMS Course",
    "reqd": 1
+  },
+  {
+   "description": "Optional grouping. Sessions in the same module are shown together as one collapsible group in the course outline.",
+   "fieldname": "module",
+   "fieldtype": "Link",
+   "label": "Module",
+   "options": "Course Module"
   },
   {
    "fieldname": "title",
