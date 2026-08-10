@@ -38,6 +38,7 @@
 			v-else
 			:class="{
 				'border-2 rounded-md py-2 px-2': showOutline && outline.data?.length,
+				'pb-48': allowEdit,
 			}"
 		>
 			<!-- Grouped view: modules first, their sessions inside. A course with no
@@ -140,6 +141,11 @@ import {
 	groupOfChapterIdx,
 	groupOfLesson,
 } from '@/utils/courseModules'
+import {
+	recallOpenSession,
+	reloadCourseOutlines,
+	rememberOpenSession,
+} from '@/utils/courseOutline'
 import type {
 	ChapterStatus,
 	CourseModule,
@@ -232,7 +238,7 @@ function openLessonModalForEdit(payload: {
 }
 
 function onLessonCreated(created: { name: string; number: string }) {
-	outline.reload()
+	reloadOutline()
 	const ctx = lessonContext.value
 	if (!ctx) return
 	const chapterNumber = String(ctx.chapterIdx)
@@ -255,7 +261,7 @@ function onLessonCreated(created: { name: string; number: string }) {
 }
 
 function onLessonUpdated(_payload: { name: string }) {
-	outline.reload()
+	reloadOutline()
 }
 
 const props = withDefaults(
@@ -319,8 +325,7 @@ watch(
 )
 
 function reloadOutline() {
-	outline.reload()
-	modules.reload()
+	reloadCourseOutlines(props.courseName)
 }
 
 // The outline stays a flat list of sessions on the wire; the module grouping is
@@ -354,41 +359,47 @@ const ungroupedChapterCount = computed<number>(
 
 // Session expand/collapse is controlled here so an outline reload can never
 // silently re-expand a session the user collapsed (the old per-row
-// `defaultOpen` kept snapping Session 1 back open). In the read-only outline
-// this is a strict accordion — one session open at a time; in the editor,
-// sessions expand independently so lessons can be dragged between them.
+// `defaultOpen` kept snapping Session 1 back open). Strict accordion — one
+// session open at a time, in the editor as well as the read-only outline.
 const openChapters = ref<Set<string>>(new Set())
-const accordion = computed<boolean>(() => !props.allowEdit && !props.chaptersOnly)
 
-function onToggleChapter(chapter: OutlineChapter) {
-	const next = new Set(openChapters.value)
-	const isOpen = next.has(chapter.name)
-	if (accordion.value) {
-		next.clear()
-		if (!isOpen) next.add(chapter.name)
-	} else if (isOpen) {
-		next.delete(chapter.name)
-	} else {
-		next.add(chapter.name)
-	}
-	openChapters.value = next
+// Survives a remount (switching the editor between edit and preview tears this
+// component down), so a collapsed outline stays collapsed instead of falling
+// back to the Session 1 default.
+const sessionStateKey = computed<string>(
+	() => `${props.courseName}::${props.allowEdit ? 'edit' : 'view'}`
+)
+
+function setOpenChapter(name: string | null) {
+	openChapters.value = new Set(name ? [name] : [])
+	rememberOpenSession(sessionStateKey.value, name)
 }
 
-// Seed the open session once, when the outline first loads: the session named
-// in the route, otherwise the first session (matches the previous default).
-// With modules there is no first-session default — the point of grouping is to
-// open on a short list of module headings, not on a session's lessons.
+function onToggleChapter(chapter: OutlineChapter) {
+	const isOpen = openChapters.value.has(chapter.name)
+	setOpenChapter(isOpen ? null : chapter.name)
+}
+
+// Seed the open session once, when the outline first loads: what the user last
+// had open, else the session named in the route, else the first session. With
+// modules there is no first-session default — the point of grouping is to open
+// on a short list of module headings, not on a session's lessons.
 let outlineInitialized = false
 watch(
 	[() => outline.data, () => modules.data],
 	([data, moduleList]) => {
 		if (!data || !moduleList || outlineInitialized) return
 		outlineInitialized = true
+		const remembered = recallOpenSession(sessionStateKey.value)
+		if (remembered !== undefined) {
+			openChapters.value = new Set(remembered ? [remembered] : [])
+			return
+		}
 		const activeIdx = Number(route.params.chapterNumber) || null
 		const active =
 			(activeIdx && data.find((c) => c.idx === activeIdx)) ||
 			(moduleList.length ? null : data[0])
-		openChapters.value = new Set(active ? [active.name] : [])
+		setOpenChapter(active ? active.name : null)
 	},
 	{ immediate: true }
 )
@@ -652,7 +663,7 @@ const deleteLesson = createResource({
 		return values
 	},
 	onSuccess() {
-		outline.reload()
+		reloadOutline()
 		toast.success(__('Lesson deleted successfully'))
 	},
 })
@@ -688,7 +699,7 @@ const deleteChapter = createResource({
 		return values
 	},
 	onSuccess() {
-		outline.reload()
+		reloadOutline()
 		toast.success(__('Chapter deleted successfully'))
 	},
 })
@@ -706,7 +717,7 @@ function setChapterStatus(payload: { chapter: string; status: ChapterStatus }) {
 			// Refetch rather than patch locally: publishing a session changes what
 			// the outline endpoint returns, and for the author it also changes
 			// nothing else — so a reload is both correct and cheap.
-			outline.reload()
+			reloadOutline()
 			toast.success(
 				payload.status === 'Published'
 					? __('Session published. It is now visible to enrolled students.')
@@ -751,7 +762,7 @@ function trashLesson(lessonName: string, chapterName: string) {
 						{ lesson: lessonName, chapter: chapterName },
 						{
 							onSuccess() {
-								outline.reload()
+								reloadOutline()
 								toast.success(__('Lesson deleted successfully'))
 								if (lessonNumber) {
 									emit('lesson-deleted', lessonNumber)

@@ -123,6 +123,7 @@ import { getFileSize } from '@/utils/'
 import { FileText, X } from 'lucide-vue-next'
 import { useTelemetry } from 'frappe-ui/frappe'
 import { useOnboarding } from '@/utils/onboarding'
+import { reloadCourseOutlines } from '@/utils/courseOutline'
 import type {
 	ChapterDetailInput,
 	ChapterStatus,
@@ -226,6 +227,7 @@ const addChapter = async (close: () => void) => {
 
 				capture('chapter_created')
 				cleanChapter()
+				reloadCourseOutlines(props.course)
 				outline.value?.reload()
 				toast.success(__('Chapter added successfully'))
 				close()
@@ -265,6 +267,7 @@ const editChapter = (close: () => void) => {
 				}
 			},
 			onSuccess() {
+				reloadCourseOutlines(props.course)
 				outline.value?.reload()
 				toast.success(__('Chapter updated successfully'))
 				close()

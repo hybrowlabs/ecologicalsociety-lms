@@ -169,6 +169,7 @@ const lesson = reactive({
 	body: '',
 	instructor_notes: '',
 	content: '',
+	instructor_content: '',
 })
 
 const lessonDetails = createResource({
@@ -281,7 +282,10 @@ const editLesson = createResource({
 		return {
 			doctype: 'Course Lesson',
 			name: values.lesson,
-			fieldname: lesson,
+			fieldname: {
+				content: lesson.content,
+				instructor_content: lesson.instructor_content,
+			},
 		}
 	},
 })
@@ -565,7 +569,9 @@ const editCurrentLesson = () => {
 		},
 		{
 			validate() {
-				return validateLesson()
+				if (!lesson.content) {
+					return 'Content is required'
+				}
 			},
 			onSuccess() {
 				showSuccessMessage
