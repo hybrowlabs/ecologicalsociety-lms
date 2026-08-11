@@ -103,22 +103,26 @@
 			<CourseOverview :course="course" />
 		</div>
 		<div v-else class="relative flex flex-1 min-h-0 flex-col">
-			<Tabs :tabs="tabs" v-model="tabIndex">
+			<Tabs :tabs="asFrappeUITabs(tabs)" v-model="tabIndex">
 				<template #tab-panel="{ tab }">
 					<template v-if="course.data">
 						<CourseEditor
-							v-if="tab.component === CourseEditor"
+							v-if="asTabDef(tab).component === CourseEditor"
 							ref="courseEditorRef"
 							:course="course"
 							v-model:selected="editorSelected"
 							v-model:mode="editorMode"
 						/>
 						<CourseForm
-							v-else-if="tab.component === CourseForm"
+							v-else-if="asTabDef(tab).component === CourseForm"
 							ref="courseFormRef"
 							:course="course"
 						/>
-						<component v-else :is="tab.component" :course="course" />
+						<component
+							v-else
+							:is="asTabDef(tab).component"
+							:course="course"
+						/>
 					</template>
 				</template>
 			</Tabs>
@@ -147,7 +151,15 @@
 	</div>
 </template>
 <script setup lang="ts">
-import { computed, inject, markRaw, onMounted, ref, watch } from 'vue'
+import {
+	computed,
+	getCurrentInstance,
+	inject,
+	markRaw,
+	onMounted,
+	ref,
+	watch,
+} from 'vue'
 import type { Component, ComputedRef, Ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import type { RouteLocationNormalizedLoadedGeneric, Router } from 'vue-router'
@@ -193,8 +205,25 @@ interface TabDef {
 	component: ReturnType<typeof markRaw>
 	icon: Component
 }
+type FrappeUITab = { label: string; icon?: string; route?: string }
+const asFrappeUITabs = (defs: TabDef[]): FrappeUITab[] =>
+	defs as unknown as FrappeUITab[]
+const asTabDef = (tab: FrappeUITab): TabDef => tab as unknown as TabDef
+type DialogAction = {
+	label: string
+	theme?: string
+	variant?: string
+	onClick: (close: () => void) => void
+}
+type DialogFn = (opts: {
+	title: string
+	message: string
+	actions: DialogAction[]
+}) => void
 
 const { brand } = sessionStore() as { brand: Brand }
+const { $dialog } = getCurrentInstance()!.appContext.config
+	.globalProperties as unknown as { $dialog: DialogFn }
 const router: Router = useRouter()
 const route: RouteLocationNormalizedLoadedGeneric = useRoute()
 const user = inject<SessionUser>('$user')!
@@ -210,16 +239,12 @@ interface EditorSelection {
 const editorSelected = ref<EditorSelection | null>(null)
 const editorMode = ref<'edit' | 'preview'>('edit')
 
-// Settings tab (CourseForm) exposes the API the LayoutHeader actions need.
 type CourseMenuItem = {
 	label: string
 	icon: string
-	theme?: string
+	theme?: 'gray' | 'red'
 	onClick: () => void
 }
-// `isDirty` is exposed as a Ref (defineExpose doesn't unwrap); `courseMenu`
-// is a ComputedRef. Templates auto-unwrap both, but script-side access needs
-// the wrapped types so callers don't accidentally truth-check a Ref object.
 type CourseFormApi = {
 	isDirty: Ref<boolean>
 	submitCourse: () => void
@@ -243,8 +268,6 @@ type CourseEditorApi = {
 }
 const courseEditorRef = ref<CourseEditorApi | null>(null)
 
-// Sessions and the modules that group them are authored from the same button:
-// both live in the outline, and an author reaching for "Add" may want either.
 const outlineActions = computed(() => [
 	{
 		label: __('Add Session'),
@@ -289,7 +312,28 @@ const publishToggle = createResource({
 }) as Resource<unknown>
 
 function togglePublishCourse() {
-	publishToggle.submit()
+	const isPublished = Boolean(course.data?.published)
+	$dialog({
+		title: isPublished ? __('Unpublish this course?') : __('Publish this course?'),
+		message: isPublished
+			? __(
+					'Unpublishing will hide this course from learners and stop new enrollments. You can publish it again at any time.'
+			  )
+			: __(
+					'Publishing will make this course visible to learners and open it for enrollment. Make sure its content is ready.'
+			  ),
+		actions: [
+			{
+				label: isPublished ? __('Unpublish') : __('Publish'),
+				theme: isPublished ? 'red' : 'gray',
+				variant: 'solid',
+				onClick(close: () => void) {
+					publishToggle.submit()
+					close()
+				},
+			},
+		],
+	})
 }
 
 const props = defineProps<{
@@ -318,7 +362,6 @@ watch(tabIndex, () => {
 	}
 })
 
-// Switch tabs when the hash is changed programmatically (e.g. deep-links).
 watch(() => route.hash, updateTabIndex)
 
 const course = createResource({
@@ -407,17 +450,12 @@ usePageMeta(() => {
 </script>
 
 <style scoped>
-/* frappe-ui Tabs: TabsContent has no flex-1, so when the active panel's
-   content is intrinsically tall (Course editor with many lessons), the
-   flex-col layout shrinks the TabsList strip. Pin it so the strip keeps
-   its content height. */
+
 :deep([role='tablist']) {
 	flex-shrink: 0;
 }
 
-/* frappe-ui TabsContent is `flex flex-col` with no flex-1, so the active
-   panel collapses to its content height and the editor's `flex-1 min-h-0`
-   grid has no space to fill. Stretch the active panel to fill TabsRoot. */
+
 :deep([role='tabpanel'][data-state='active']) {
 	flex: 1 1 0%;
 	min-height: 0;
