@@ -59,6 +59,7 @@ import PDFViewer from '@/components/PDFViewer.vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { useScreenSize } from '@/utils/composables'
+import { extractYouTubeId, replaceVideoIframes } from '@/utils/youtube'
 import { computed } from 'vue'
 
 const screenSize = useScreenSize()
@@ -78,17 +79,6 @@ markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 	return defaultLinkOpen(tokens, idx, options, env, self)
 }
 
-const extractYouTubeId = (url) => {
-	try {
-		var regExp =
-			/^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/
-		var match = url.match(regExp)
-		return match && match[7].length == 11 ? match[7] : false
-	} catch (error) {
-		return false
-	}
-}
-
 const cleanIframeHTML = (html) => {
 	let decoded = html
 	if (html.includes('&lt;') || html.includes('&gt;')) {
@@ -104,16 +94,7 @@ const cleanIframeHTML = (html) => {
 		'$1'
 	)
 
-	if (decoded.includes('youtube.com/embed/')) {
-		const match = decoded.match(/src="([^"]+youtube\.com\/embed\/[^"]+)"/i)
-		if (match) {
-			const videoID = extractYouTubeId(match[1])
-			if (videoID) {
-				return `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}" oncontextmenu="return false"></div>`
-			}
-		}
-	}
-	return decoded
+	return replaceVideoIframes(decoded)
 }
 
 const renderSafe = (block) => {

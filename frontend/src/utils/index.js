@@ -20,6 +20,12 @@ import Table from '@editorjs/table'
 import Plyr from 'plyr'
 import 'plyr/dist/plyr.css'
 import DOMPurify from 'dompurify'
+import {
+	extractYouTubeId,
+	extractVimeoId,
+	plyrPlayerHTML,
+	replaceVideoIframes,
+} from '@/utils/youtube'
 
 const readOnlyMode = window.read_only_mode
 
@@ -743,15 +749,7 @@ const sanitizeJSON = (node) => {
 		}
 		decoded = decoded.replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
 
-		if (decoded.includes('youtube.com/embed/')) {
-			const match = decoded.match(/src="([^"]+youtube\.com\/embed\/[^"]+)"/i)
-			if (match) {
-				const videoID = extractYouTubeId(match[1])
-				if (videoID) {
-					decoded = `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}" oncontextmenu="return false"></div>`
-				}
-			}
-		}
+		decoded = replaceVideoIframes(decoded)
 
 		return DOMPurify.sanitize(decoded, {
 			ADD_TAGS: ['iframe', 'div'],
@@ -787,27 +785,28 @@ export const sanitizeEditorJs = (data) => {
 			const service = node.data.service
 			if (service === 'youtube') {
 				const embedUrl = node.data.embed || ''
-				const videoID = extractYouTubeId(embedUrl) || embedUrl
+				const videoID =
+					extractYouTubeId(embedUrl) ||
+					extractYouTubeId(node.data.source) ||
+					embedUrl
 				if (videoID) {
 					data.blocks[i] = {
 						type: 'paragraph',
-						data: {
-							text: `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="youtube" data-plyr-embed-id="${videoID}" oncontextmenu="return false"></div>`,
-						},
+						data: { text: plyrPlayerHTML('youtube', videoID) },
 					}
 					continue
 				}
 			}
 			if (service === 'vimeo') {
 				const embedUrl = node.data.embed || ''
-				const vimeoMatch = embedUrl.match(/vimeo\.com\/video\/(\d+)/)
-				const vimeoId = vimeoMatch ? vimeoMatch[1] : embedUrl
+				const vimeoId =
+					extractVimeoId(embedUrl) ||
+					extractVimeoId(node.data.source) ||
+					embedUrl
 				if (vimeoId) {
 					data.blocks[i] = {
 						type: 'paragraph',
-						data: {
-							text: `<div class="video-player rounded-md overflow-hidden border border-gray-100" data-plyr-provider="vimeo" data-plyr-embed-id="${vimeoId}" oncontextmenu="return false"></div>`,
-						},
+						data: { text: plyrPlayerHTML('vimeo', vimeoId) },
 					}
 					continue
 				}
@@ -935,16 +934,25 @@ const setupPlyrForVideo = (video, players, context = {}) => {
 	if (video._plyrInitialized) return
 
 	const src = video.getAttribute('src')
+	const provider = video.getAttribute('data-plyr-provider')
 
 	if (src) {
-		const videoID = extractYouTubeId(src)
-		video.setAttribute('data-plyr-embed-id', videoID)
+		const videoID =
+			provider === 'vimeo'
+				? extractVimeoId(src) || src.split('/').pop()
+				: extractYouTubeId(src)
+		if (videoID) video.setAttribute('data-plyr-embed-id', videoID)
+	}
+
+	// The embed tool only substitutes `<%= remote_id %>` in its own paste
+	// handler, so a block created any other way still carries the placeholder.
+	if (video.getAttribute('data-plyr-embed-id')?.includes('<%=')) {
+		video.removeAttribute('data-plyr-embed-id')
 	}
 
 	// If this is a YouTube provider but has no embed-id, try to find it
 	// from a sibling/parent EditorJS embed block's iframe, or from the
 	// embed-tool container's data.
-	const provider = video.getAttribute('data-plyr-provider')
 	if (provider === 'youtube' && !video.getAttribute('data-plyr-embed-id')) {
 		// Look for an iframe with a YouTube src in the same embed-tool block
 		const embedBlock = video.closest('.embed-tool__content') || video.closest('.cdx-block')
@@ -1091,18 +1099,6 @@ const attachSeekKeyGuard = (player) => {
 			true
 		)
 	})
-}
-
-const extractYouTubeId = (url) => {
-	try {
-		const parsedUrl = new URL(url)
-		return (
-			parsedUrl.searchParams.get('v') ||
-			parsedUrl.pathname.split('/').pop()
-		)
-	} catch {
-		return url.split('/').pop()
-	}
 }
 
 export const createLMSCategory = (name) => {

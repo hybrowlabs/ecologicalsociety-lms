@@ -47,6 +47,7 @@ import { reactive, onMounted, inject, ref, onBeforeUnmount } from 'vue'
 import EditorJS from '@editorjs/editorjs'
 import { ChevronRight } from 'lucide-vue-next'
 import { getEditorTools, enablePlyr } from '@/utils'
+import { extractYouTubeId, videoFromIframe } from '@/utils/youtube'
 import { useTelemetry } from 'frappe-ui/frappe'
 import { useOnboarding } from '@/utils/onboarding'
 
@@ -120,36 +121,9 @@ const renderEditor = (holder) => {
 							txt.innerHTML = text
 							return txt.value
 						})()
-						const iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/i
-						const match = decodedText.match(iframeRegex)
-						if (match) {
-							const src = match[1]
-							if (src.includes('youtube.com/embed/') || src.includes('youtu.be/')) {
-								const videoID = extractYouTubeId(src)
-								if (videoID) {
-									await api.blocks.convert(block.id, 'embed', {
-										service: 'youtube',
-										source: src,
-										embed: videoID,
-										width: 580,
-										height: 320,
-										caption: '',
-									})
-								}
-							} else if (src.includes('player.vimeo.com/video/')) {
-								const vimeoMatch = src.match(/vimeo\.com\/video\/(\d+)/)
-								const vimeoId = vimeoMatch ? vimeoMatch[1] : src.split('/').pop()
-								if (vimeoId) {
-									await api.blocks.convert(block.id, 'embed', {
-										service: 'vimeo',
-										source: src,
-										embed: `https://player.vimeo.com/video/${vimeoId}`,
-										width: 580,
-										height: 320,
-										caption: '',
-									})
-								}
-							}
+						const video = videoFromIframe(decodedText)
+						if (video) {
+							await api.blocks.convert(block.id, 'embed', embedBlockData(video))
 						}
 					}
 				}
@@ -306,16 +280,17 @@ const lessonReference = createResource({
 	},
 })
 
-const extractYouTubeId = (url) => {
-	try {
-		var regExp =
-			/^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/
-		var match = url.match(regExp)
-		return match && match[7].length == 11 ? match[7] : false
-	} catch (error) {
-		return false
-	}
-}
+const embedBlockData = (video) => ({
+	service: video.provider,
+	source: video.src,
+	embed:
+		video.provider === 'vimeo'
+			? `https://player.vimeo.com/video/${video.id}`
+			: video.id,
+	width: 580,
+	height: 320,
+	caption: '',
+})
 
 const convertToJSON = (lessonData) => {
 	let blocks = []
@@ -468,57 +443,15 @@ const decodeHTML = (html) => {
  */
 const convertIframesToEmbedBlocks = (outputData) => {
 	let changed = false
-	const iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/i
 
 	outputData.blocks = outputData.blocks.map((block) => {
 		if (block.type !== 'paragraph' && block.type !== 'markdown') return block
 
-		const text = block.data?.text || ''
-		const decodedText = decodeHTML(text)
-		const match = decodedText.match(iframeRegex)
-		if (!match) return block
+		const video = videoFromIframe(decodeHTML(block.data?.text || ''))
+		if (!video) return block
 
-		const src = match[1]
-
-		// YouTube embed
-		if (src.includes('youtube.com/embed/') || src.includes('youtu.be/')) {
-			const videoID = extractYouTubeId(src)
-			if (videoID) {
-				changed = true
-				return {
-					type: 'embed',
-					data: {
-						service: 'youtube',
-						source: src,
-						embed: videoID,
-						width: 580,
-						height: 320,
-						caption: '',
-					},
-				}
-			}
-		}
-
-		// Vimeo embed
-		if (src.includes('player.vimeo.com/video/')) {
-			const vimeoMatch = src.match(/vimeo\.com\/video\/(\d+)/)
-			if (vimeoMatch) {
-				changed = true
-				return {
-					type: 'embed',
-					data: {
-						service: 'vimeo',
-						source: src,
-						embed: `https://player.vimeo.com/video/${vimeoMatch[1]}`,
-						width: 580,
-						height: 320,
-						caption: '',
-					},
-				}
-			}
-		}
-
-		return block
+		changed = true
+		return { type: 'embed', data: embedBlockData(video) }
 	})
 
 	return { data: outputData, changed }
