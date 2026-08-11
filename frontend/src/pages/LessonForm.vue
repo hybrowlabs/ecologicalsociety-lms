@@ -47,7 +47,7 @@ import { reactive, onMounted, inject, ref, onBeforeUnmount } from 'vue'
 import EditorJS from '@editorjs/editorjs'
 import { ChevronRight } from 'lucide-vue-next'
 import { getEditorTools, enablePlyr } from '@/utils'
-import { extractYouTubeId, videoFromIframe } from '@/utils/youtube'
+import { extractYouTubeId, splitVideoIframes } from '@/utils/youtube'
 import { useTelemetry } from 'frappe-ui/frappe'
 import { useOnboarding } from '@/utils/onboarding'
 
@@ -115,15 +115,16 @@ const renderEditor = (holder) => {
 					const block = api.blocks.getBlockByIndex(currentIndex)
 					if (block && (block.name === 'paragraph' || block.name === 'markdown')) {
 						const blockData = await block.save()
-						const text = blockData.data?.text || ''
-						const decodedText = (() => {
-							const txt = document.createElement('textarea')
-							txt.innerHTML = text
-							return txt.value
-						})()
-						const video = videoFromIframe(decodedText)
-						if (video) {
-							await api.blocks.convert(block.id, 'embed', embedBlockData(video))
+						const parts = videoParts(blockData.data?.text || '')
+						// Convert only while the block is nothing but the embed;
+						// a block that also carries copy is split on save instead,
+						// so half-typed sentences aren't swallowed mid-keystroke.
+						if (parts.length === 1 && parts[0].type === 'video') {
+							await api.blocks.convert(
+								block.id,
+								'embed',
+								embedBlockData(parts[0].video)
+							)
 						}
 					}
 				}
@@ -436,22 +437,50 @@ const decodeHTML = (html) => {
 }
 
 /**
+ * Split a block's text into embeds and copy. Stored text is matched as-is
+ * first — splitVideoIframes reads escaped snippets too, so the surviving copy
+ * keeps its original escaping — and only falls back to a decoded pass for
+ * doubly-escaped text that the raw pass can't see through.
+ */
+const videoParts = (text) => {
+	const parts = splitVideoIframes(text)
+	if (parts.some((part) => part.type === 'video')) return parts
+
+	const decoded = decodeHTML(text)
+	return decoded === text ? parts : splitVideoIframes(decoded)
+}
+
+const isBlank = (text) => !text.replace(/<br\s*\/?>|&nbsp;|\s/gi, '')
+
+/**
  * Scan paragraph blocks for YouTube/Vimeo iframe HTML and convert them
  * into proper EditorJS embed blocks. This prevents raw iframe text from
  * persisting in the database and ensures embeds render correctly in both
- * the editor and the viewer.
+ * the editor and the viewer. Copy sharing the block with an embed is kept
+ * as its own block rather than being replaced by the player.
  */
 const convertIframesToEmbedBlocks = (outputData) => {
 	let changed = false
 
-	outputData.blocks = outputData.blocks.map((block) => {
-		if (block.type !== 'paragraph' && block.type !== 'markdown') return block
+	outputData.blocks = outputData.blocks.flatMap((block) => {
+		if (block.type !== 'paragraph' && block.type !== 'markdown')
+			return [block]
 
-		const video = videoFromIframe(decodeHTML(block.data?.text || ''))
-		if (!video) return block
+		const parts = videoParts(block.data?.text || '')
+		if (!parts.some((part) => part.type === 'video')) return [block]
 
 		changed = true
-		return { type: 'embed', data: embedBlockData(video) }
+
+		return parts.flatMap((part) => {
+			if (part.type === 'video')
+				return [{ type: 'embed', data: embedBlockData(part.video) }]
+
+			if (isBlank(part.value)) return []
+
+			return [
+				{ type: block.type, data: { ...block.data, text: part.value } },
+			]
+		})
 	})
 
 	return { data: outputData, changed }

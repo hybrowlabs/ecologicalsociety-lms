@@ -5,9 +5,22 @@ import {
 	iframeSrc,
 	videoFromIframe,
 	replaceVideoIframes,
+	splitVideoIframes,
+	hasVideoIframe,
 } from '@/utils/youtube'
 
-const REPORTED_IFRAME = `<iframe width="560" height="315" src="https://www.youtube.com/embed/v6lcahOt_II?si=rdGCxpxe3bA8YVhN" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`
+const ATTRS = `width="560" height="315" src="https://www.youtube.com/embed/v6lcahOt_II?si=rdGCxpxe3bA8YVhN" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen`
+
+const REPORTED_IFRAME = `<iframe ${ATTRS}></iframe>`
+
+// What the lessons on the site actually hold: the opening "<" is gone and the
+// rest of the snippet survived as text.
+const HEADLESS_IFRAME = `iframe ${ATTRS}></iframe>`
+
+// The same snippet as a contenteditable serialises it after a plain-text paste.
+const ESCAPED_IFRAME = `&lt;iframe ${ATTRS}&gt;&lt;/iframe&gt;`
+
+const HEADLESS_ESCAPED_IFRAME = `iframe ${ATTRS}&gt;&lt;/iframe&gt;`
 
 describe('extractYouTubeId', () => {
 	it('handles ids that start with "v"', () => {
@@ -144,5 +157,65 @@ describe('replaceVideoIframes', () => {
 	it('leaves non-video iframes untouched', () => {
 		const html = '<iframe src="https://example.com/form"></iframe>'
 		expect(replaceVideoIframes(html)).toBe(html)
+	})
+
+	it('leaves prose that merely mentions iframes alone', () => {
+		const html = '<p>An iframe is how you embed a video &gt; a link.</p>'
+		expect(replaceVideoIframes(html)).toBe(html)
+	})
+})
+
+describe('mangled snippets', () => {
+	const shapes = {
+		'opening bracket eaten': HEADLESS_IFRAME,
+		escaped: ESCAPED_IFRAME,
+		'escaped with the opening bracket eaten': HEADLESS_ESCAPED_IFRAME,
+	}
+
+	for (const [name, snippet] of Object.entries(shapes)) {
+		it(`reads the src out of a snippet that is ${name}`, () => {
+			expect(iframeSrc(snippet)).toBe(
+				'https://www.youtube.com/embed/v6lcahOt_II?si=rdGCxpxe3bA8YVhN'
+			)
+			expect(videoFromIframe(snippet)).toMatchObject({
+				provider: 'youtube',
+				id: 'v6lcahOt_II',
+			})
+		})
+
+		it(`renders a player for a snippet that is ${name}`, () => {
+			const html = replaceVideoIframes(snippet)
+			expect(html).toContain('data-plyr-embed-id="v6lcahOt_II"')
+			expect(html).not.toContain('iframe')
+		})
+	}
+})
+
+describe('splitVideoIframes', () => {
+	it('keeps the copy on either side of the embed', () => {
+		const parts = splitVideoIframes(
+			`Watch this: ${HEADLESS_IFRAME} then answer.`
+		)
+
+		expect(parts.map((p) => p.type)).toEqual(['text', 'video', 'text'])
+		expect(parts[0].value).toBe('Watch this: ')
+		expect(parts[1].video).toMatchObject({ id: 'v6lcahOt_II' })
+		expect(parts[2].value).toBe(' then answer.')
+	})
+
+	it('finds every embed in a block', () => {
+		const parts = splitVideoIframes(
+			`${REPORTED_IFRAME}${ESCAPED_IFRAME}`
+		).filter((p) => p.type === 'video')
+
+		expect(parts).toHaveLength(2)
+	})
+
+	it('reports blocks with no embed', () => {
+		expect(hasVideoIframe('<p>just words</p>')).toBe(false)
+		expect(hasVideoIframe('<iframe src="https://example.com"></iframe>')).toBe(
+			false
+		)
+		expect(hasVideoIframe(HEADLESS_IFRAME)).toBe(true)
 	})
 })
