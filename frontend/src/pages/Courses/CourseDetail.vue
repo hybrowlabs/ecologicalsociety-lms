@@ -317,18 +317,25 @@ function togglePublishCourse() {
 		title: isPublished ? __('Unpublish this course?') : __('Publish this course?'),
 		message: isPublished
 			? __(
-					'Unpublishing will hide this course from learners and stop new enrollments. You can publish it again at any time.'
+					'Unpublishing will hide this course from learners and stop new enrollments. Do you want to continue?'
 			  )
 			: __(
-					'Publishing will make this course visible to learners and open it for enrollment. Make sure its content is ready.'
+					'Publishing will make this course visible to learners and open it for enrollment. Do you want to continue?'
 			  ),
 		actions: [
 			{
-				label: isPublished ? __('Unpublish') : __('Publish'),
+				label: __('Yes'),
 				theme: isPublished ? 'red' : 'gray',
 				variant: 'solid',
 				onClick(close: () => void) {
 					publishToggle.submit()
+					close()
+				},
+			},
+			{
+				label: __('No'),
+				variant: 'subtle',
+				onClick(close: () => void) {
 					close()
 				},
 			},

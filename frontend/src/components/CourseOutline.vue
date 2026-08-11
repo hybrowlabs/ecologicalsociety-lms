@@ -712,11 +712,45 @@ const chapterStatus = createResource({
 })
 
 function setChapterStatus(payload: { chapter: string; status: ChapterStatus }) {
+	const publishing = payload.status === 'Published'
+	$dialog({
+		title: publishing
+			? __('Publish this session?')
+			: __('Move this session to draft?'),
+		message: publishing
+			? __(
+					'Publishing will make this session visible to enrolled students. Do you want to continue?'
+			  )
+			: __(
+					'Moving this session to draft will hide it from students. Do you want to continue?'
+			  ),
+		actions: [
+			{
+				label: __('Yes'),
+				theme: publishing ? 'gray' : 'red',
+				variant: 'solid',
+				onClick(close) {
+					submitChapterStatus(payload)
+					close()
+				},
+			},
+			{
+				label: __('No'),
+				variant: 'subtle',
+				onClick(close) {
+					close()
+				},
+			},
+		],
+	})
+}
+
+function submitChapterStatus(payload: {
+	chapter: string
+	status: ChapterStatus
+}) {
 	chapterStatus.submit(payload, {
 		onSuccess() {
-			// Refetch rather than patch locally: publishing a session changes what
-			// the outline endpoint returns, and for the author it also changes
-			// nothing else — so a reload is both correct and cheap.
 			reloadOutline()
 			toast.success(
 				payload.status === 'Published'
