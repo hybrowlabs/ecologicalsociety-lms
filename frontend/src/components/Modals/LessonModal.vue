@@ -18,6 +18,15 @@
 						)
 					"
 				/>
+				<Switch
+					v-model="lesson.es_required_to_proceed"
+					:label="__('Required to Unlock Next Lessons')"
+					:description="
+						__(
+							'If enabled, the lessons after this one stay locked until the student completes it, including any quiz it contains. If disabled, students can skip it and move on.'
+						)
+					"
+				/>
 			</div>
 		</template>
 		<template #actions>
@@ -38,11 +47,15 @@ interface LessonDetail {
 	name?: string
 	title?: string
 	include_in_preview?: boolean | 0 | 1
+	es_required_to_proceed?: boolean | 0 | 1
 }
 
 interface LessonForm {
 	title: string
 	include_in_preview: 0 | 1
+	// Ecological Society custom field. Gates the sequential lesson locking:
+	// on (the default) keeps a lesson blocking the ones after it.
+	es_required_to_proceed: 0 | 1
 }
 
 const props = defineProps<{
@@ -65,6 +78,7 @@ const saving = ref<boolean>(false)
 const lesson = reactive<LessonForm>({
 	title: '',
 	include_in_preview: 0,
+	es_required_to_proceed: 1,
 })
 
 const isEdit = computed<boolean>(() => Boolean(props.lessonDetail?.name))
@@ -77,12 +91,28 @@ const fetchLesson = createResource({
 	makeParams: () => ({
 		doctype: 'Course Lesson',
 		filters: { name: props.lessonDetail?.name },
-		fieldname: ['title', 'include_in_preview'],
+		fieldname: ['title', 'include_in_preview', 'es_required_to_proceed'],
 	}),
-	onSuccess(data: { title?: string; include_in_preview?: 0 | 1 } | undefined) {
+	onSuccess(
+		data:
+			| {
+					title?: string
+					include_in_preview?: 0 | 1
+					es_required_to_proceed?: 0 | 1
+			  }
+			| undefined
+	) {
 		if (!data) return
 		if (data.title != null) lesson.title = data.title
 		lesson.include_in_preview = data.include_in_preview ? 1 : 0
+		// Absent only on a site that has not migrated yet: treat as required, so
+		// the strict pre-feature locking is what gets written back.
+		lesson.es_required_to_proceed =
+			data.es_required_to_proceed === undefined
+				? 1
+				: data.es_required_to_proceed
+					? 1
+					: 0
 	},
 })
 
@@ -92,8 +122,14 @@ watch(
 		if (!open) return
 		lesson.title = detail?.title ?? ''
 		lesson.include_in_preview = detail?.include_in_preview ? 1 : 0
+		lesson.es_required_to_proceed =
+			detail?.es_required_to_proceed === undefined
+				? 1
+				: detail.es_required_to_proceed
+					? 1
+					: 0
 		// Outline rows don't carry include_in_preview — hydrate from the doc
-		// so the toggle reflects current state instead of always off.
+		// so the toggles reflect current state instead of their defaults.
 		if (detail?.name) fetchLesson.reload()
 	},
 	{ immediate: true }
@@ -111,6 +147,7 @@ const insertLesson = createResource({
 			chapter: props.chapterName,
 			title: lesson.title,
 			include_in_preview: lesson.include_in_preview,
+			es_required_to_proceed: lesson.es_required_to_proceed,
 		},
 	}),
 })
@@ -137,6 +174,7 @@ const updateLesson = createResource({
 		fieldname: {
 			title: lesson.title,
 			include_in_preview: lesson.include_in_preview,
+			es_required_to_proceed: lesson.es_required_to_proceed,
 		},
 	}),
 })
