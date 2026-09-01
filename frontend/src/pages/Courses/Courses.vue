@@ -138,7 +138,10 @@ const currentCategory = ref(null)
 const title = ref('')
 const certification = ref(false)
 const filters = ref({})
-const currentTab = ref('live')
+// Open on All so nothing is hidden behind a filter on arrival. Students and
+// guests still only ever see published courses — `updateStudentFilter` applies
+// that regardless of the tab.
+const currentTab = ref('all')
 const { brand } = sessionStore()
 const courseCount = ref(0)
 const router = useRouter()
@@ -314,6 +317,13 @@ watch(currentTab, () => {
 
 const courseTabs = computed(() => {
 	let tabs = [
+		{
+			// No filter of its own: `updateTabFilter` clears the tab filters and
+			// none of its branches match 'all', so every course the user may see
+			// is listed.
+			label: __('All'),
+			value: 'all',
+		},
 		{
 			label: __('Live'),
 			value: 'live',

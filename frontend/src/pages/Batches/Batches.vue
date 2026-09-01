@@ -148,7 +148,11 @@ const title = ref('')
 const certification = ref(false)
 const filters = ref({})
 const is_student = computed(() => user.data?.is_student)
-const currentTab = ref(is_student.value ? 'all' : 'upcoming')
+// Open on All. "Upcoming" only holds batches starting today or later, so staff
+// landed on an empty list once the schedule moved on — and `is_student` is false
+// until the user resource resolves, so the old ternary picked 'upcoming' for
+// students too.
+const currentTab = ref('all')
 const orderBy = ref('start_date')
 const readOnlyMode = window.read_only_mode
 const router = useRouter()
