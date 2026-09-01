@@ -13,6 +13,7 @@ from frappe.utils import escape_html, validate_email_address
 from frappe.utils.file_manager import is_safe_path
 
 from lms.lms.utils import create_user as create_lms_user
+from lms.lms.utils import parse_chapter_instructors
 
 
 def export_course_zip(course_name):
@@ -535,6 +536,13 @@ def create_chapter_docs(zip_file, course_name):
 			if chapter_data:
 				chapter_doc = frappe.new_doc("Course Chapter")
 				chapter_data.pop("lessons", None)
+				# Session instructors travel as full child rows. Reduce them to
+				# user ids so the import doesn't carry the source site's row
+				# names across, and so instructors who have no account here are
+				# dropped instead of failing the whole import on a broken link.
+				chapter_data["instructors"] = parse_chapter_instructors(
+					chapter_data.get("instructors")
+				)
 				chapter_doc.update(chapter_data)
 				chapter_doc.course = course_name
 				chapter_doc.insert(ignore_permissions=True)

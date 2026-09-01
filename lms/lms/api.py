@@ -45,6 +45,7 @@ from lms.lms.utils import (
 	has_evaluator_role,
 	has_lms_role,
 	has_moderator_role,
+	parse_chapter_instructors,
 )
 
 
@@ -1281,7 +1282,7 @@ def upsert_chapter(
 	is_scorm_package: bool,
 	scorm_package: dict = None,
 	name: str = None,
-	instructor: str = None,
+	instructors: list = None,
 	status: str = None,
 ):
 	if not isinstance(title, str):
@@ -1295,7 +1296,14 @@ def upsert_chapter(
 		frappe.throw(_("You do not have permission to modify this chapter."), frappe.PermissionError)
 
 	is_scorm_package = cint(is_scorm_package)
-	values = frappe._dict({"title": title, "course": course, "is_scorm_package": is_scorm_package, "instructor": instructor or None})
+	values = frappe._dict({"title": title, "course": course, "is_scorm_package": is_scorm_package})
+
+	# Same rule as `status` below: only replace the instructor list when the
+	# caller actually sent one, so a partial update (a rename, say) doesn't
+	# silently unassign everyone teaching the session. An explicit empty list
+	# still clears it.
+	if instructors is not None:
+		values.instructors = parse_chapter_instructors(instructors)
 
 	# Only carry a status through when the caller sent one, so editing a
 	# chapter never disturbs whether it is live. New chapters left without one
@@ -1508,6 +1516,10 @@ def delete_chapter(chapter: str):
 	frappe.db.delete("Chapter Reference", {"chapter": chapter})
 	frappe.db.delete("Lesson Reference", {"parent": chapter})
 	frappe.db.delete("Course Lesson", {"chapter": chapter})
+	# The chapter row goes out via raw SQL rather than frappe.delete_doc, so
+	# every child table has to be cleared here — instructors included, or the
+	# session's rows outlive it in `Course Instructor`.
+	frappe.db.delete("Course Instructor", {"parent": chapter, "parenttype": "Course Chapter"})
 	frappe.db.delete("Course Chapter", chapter)
 
 	# reset chapter reference index after deletion

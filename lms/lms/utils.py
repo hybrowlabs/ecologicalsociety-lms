@@ -277,6 +277,30 @@ def get_instructors(doctype: str, docname: str):
 	return instructor_details
 
 
+def parse_chapter_instructors(instructors) -> list:
+	"""Normalise the instructor list a client sends into Course Instructor rows.
+
+	Sessions accept several instructors, so the payload is a list of user ids
+	(frappe hands it over as a JSON string when the request is form-encoded).
+	Unknown users are dropped rather than raising: an instructor whose account
+	was deleted between the form loading and saving should not block the save.
+	Order is preserved; `CourseChapter.validate` removes duplicates.
+	"""
+	instructors = frappe.parse_json(instructors) or []
+	if isinstance(instructors, str):
+		instructors = [instructors]
+
+	rows = []
+	for instructor in instructors:
+		# Tolerate both a bare user id and the {"instructor": ...} row shape.
+		user = instructor.get("instructor") if isinstance(instructor, dict) else instructor
+		if not user or not frappe.db.exists("User", user):
+			continue
+		rows.append({"instructor": user})
+
+	return rows
+
+
 def get_average_rating(course: str):
 	ratings = [review.rating for review in get_reviews(course)]
 	if not len(ratings):
@@ -827,8 +851,12 @@ def update_course_filters(filters: dict) -> tuple:
 		del filters["enrolled"]
 
 	if filters.get("created"):
+		# Scoped to course rows: `Course Instructor` is also the child table
+		# behind batch and session instructors, and those parents are not courses.
 		created_courses = frappe.get_all(
-			"Course Instructor", {"instructor": frappe.session.user}, pluck="parent"
+			"Course Instructor",
+			{"instructor": frappe.session.user, "parenttype": "LMS Course"},
+			pluck="parent",
 		)
 		filters.update({"name": ["in", created_courses]})
 		del filters["created"]
@@ -1041,8 +1069,9 @@ def get_course_outline(course: str, progress: bool = False) -> list:
 	lesson_rows = get_outline_lessons([c.name for c in chapters])
 	files_by_name = get_scorm_files(chapters)
 	completed = get_completed_lessons(course, lesson_rows) if progress else set()
+	instructors = get_chapter_instructors([c.name for c in chapters])
 
-	return build_outline(chapters, lesson_rows, files_by_name, completed, progress)
+	return build_outline(chapters, lesson_rows, files_by_name, completed, progress, instructors)
 
 
 @frappe.whitelist(allow_guest=True)
@@ -1077,13 +1106,10 @@ def get_course_modules(course: str) -> list:
 def get_outline_chapter(course: str) -> list:
 	ChapterReference = frappe.qb.DocType("Chapter Reference")
 	CourseChapter = frappe.qb.DocType("Course Chapter")
-	User = frappe.qb.DocType("User")
 	return (
 		frappe.qb.from_(ChapterReference)
 		.join(CourseChapter)
 		.on(CourseChapter.name == ChapterReference.chapter)
-		.left_join(User)
-		.on(User.name == CourseChapter.instructor)
 		.select(
 			ChapterReference.idx.as_("idx"),
 			CourseChapter.name.as_("name"),
@@ -1093,12 +1119,51 @@ def get_outline_chapter(course: str) -> list:
 			CourseChapter.is_scorm_package.as_("is_scorm_package"),
 			CourseChapter.launch_file.as_("launch_file"),
 			CourseChapter.scorm_package.as_("scorm_package"),
-			CourseChapter.instructor.as_("instructor"),
-			User.full_name.as_("instructor_name"),
 		)
 		.where(ChapterReference.parent == course)
 		.orderby(ChapterReference.idx)
 	).run(as_dict=True)
+
+
+def get_chapter_instructors(chapter_names: list) -> dict:
+	"""Instructors of each session, keyed by chapter name.
+
+	A session can be taught by several people, so this can't be a join on the
+	chapter query without multiplying its rows. One extra query for the whole
+	outline keeps it flat — the same shape as `get_outline_lessons`.
+	"""
+	if not chapter_names:
+		return {}
+
+	CourseInstructor = frappe.qb.DocType("Course Instructor")
+	User = frappe.qb.DocType("User")
+	rows = (
+		frappe.qb.from_(CourseInstructor)
+		.join(User)
+		.on(User.name == CourseInstructor.instructor)
+		.select(
+			CourseInstructor.parent.as_("chapter"),
+			User.name.as_("name"),
+			User.username.as_("username"),
+			User.full_name.as_("full_name"),
+			User.user_image.as_("user_image"),
+		)
+		.where(CourseInstructor.parenttype == "Course Chapter")
+		.where(CourseInstructor.parent.isin(chapter_names))
+		.orderby(CourseInstructor.idx)
+	).run(as_dict=True)
+
+	instructors = {}
+	for row in rows:
+		instructors.setdefault(row.chapter, []).append(
+			frappe._dict(
+				name=row.name,
+				username=row.username,
+				full_name=row.full_name,
+				user_image=row.user_image,
+			)
+		)
+	return instructors
 
 
 def get_outline_lessons(chapter_names: list) -> list:
@@ -1158,7 +1223,12 @@ def get_completed_lessons(course: str, lesson_rows: list) -> set:
 
 
 def build_outline(
-	chapters: list, lesson_rows: list, files_by_name: dict, completed: set, progress: bool
+	chapters: list,
+	lesson_rows: list,
+	files_by_name: dict,
+	completed: set,
+	progress: bool,
+	instructors: dict = None,
 ) -> list:
 	chapter_idx_by_name = {c.name: c.idx for c in chapters}
 	lessons_by_chapter = {}
@@ -1198,8 +1268,7 @@ def build_outline(
 			scorm_package=c.scorm_package,
 			idx=c.idx,
 			lessons=lessons_by_chapter.get(c.name, []),
-			instructor=c.instructor,
-			instructor_name=c.instructor_name,
+			instructors=(instructors or {}).get(c.name, []),
 		)
 		if c.is_scorm_package and c.scorm_package and c.scorm_package in files_by_name:
 			chapter.scorm_package = files_by_name[c.scorm_package]

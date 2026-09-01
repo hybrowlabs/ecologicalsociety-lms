@@ -47,29 +47,33 @@
 						{{ isDraft ? __('Draft') : __('Published') }}
 					</Badge>
 				</div>
-				<!-- Instructor under the session title. When we know the
-				     instructor's username, make it open their profile so a
-				     student can read about them. @click.stop keeps the click
-				     from toggling the chapter's disclosure. -->
+				<!-- Instructors under the session title. A session can have
+				     several, so each name is its own click target: when we know
+				     the username it opens that person's profile. @click.stop
+				     keeps the click from toggling the chapter's disclosure. -->
 				<div
-					v-if="chapter.instructor_name"
-					class="text-xs text-ink-gray-5 mt-0.5 truncate"
-					:class="
-						chapter.instructor_username
-							? 'cursor-pointer hover:text-ink-gray-9 hover:underline'
-							: ''
-					"
-					:title="
-						chapter.instructor_username
-							? __('View instructor profile')
-							: undefined
-					"
-					@click.stop="
-						chapter.instructor_username &&
-							openInstructorProfile(chapter.instructor_username)
-					"
+					v-if="instructors.length"
+					class="flex flex-wrap items-center gap-x-1 text-xs text-ink-gray-5 mt-0.5"
 				>
-					{{ chapter.instructor_name }}
+					<template v-for="(instructor, i) in instructors" :key="instructor.name">
+						<span v-if="i" aria-hidden="true">&middot;</span>
+						<span
+							class="truncate"
+							:class="
+								instructor.username
+									? 'cursor-pointer hover:text-ink-gray-9 hover:underline'
+									: ''
+							"
+							:title="
+								instructor.username ? __('View instructor profile') : undefined
+							"
+							@click.stop="
+								instructor.username && openInstructorProfile(instructor.username)
+							"
+						>
+							{{ instructor.full_name || instructor.name }}
+						</span>
+					</template>
 				</div>
 			</div>
 			<div class="flex ms-auto gap-x-4 shrink-0">
@@ -225,6 +229,7 @@ import type {
 	ChapterStatus,
 	OutlineChapter,
 	OutlineLesson,
+	SessionInstructor,
 	SessionUser,
 } from '@/types/api'
 
@@ -272,6 +277,13 @@ const displayTitle = computed<string>(() =>
 	props.relabelChapters
 		? props.chapter.title.replace(/^Chapter\b/i, 'Session')
 		: props.chapter.title
+)
+
+// Sessions taught by more than one person list every instructor. An outline
+// fetched before this feature (or a session with nobody assigned) simply has
+// no names to show.
+const instructors = computed<SessionInstructor[]>(
+	() => props.chapter.instructors ?? []
 )
 
 // Lock all lessons for unenrolled non-editor users

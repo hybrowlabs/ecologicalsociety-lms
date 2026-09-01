@@ -56,7 +56,13 @@
 import { computed, inject, ref, watch } from 'vue'
 import { NotepadText, Trash2 } from 'lucide-vue-next'
 import type { Note, Notes } from '@/components/Notes/types'
-import { blockQuotesClick, getColor, highlightText } from '@/utils'
+import {
+	blockQuotesClick,
+	getColor,
+	highlightText,
+	removeHighlight,
+	removeHighlightElement,
+} from '@/utils'
 
 const user = inject<any>('$user')
 const show = defineModel()
@@ -169,21 +175,30 @@ const deleteHighlight = () => {
 	// when we can resolve it; otherwise fall back to matching the selected text.
 	const el = highlightedElAtSelection()
 	const targetName = el?.dataset?.name
-	let notesToDelete = targetName
+	const notesToDelete = targetName
 		? notes.value?.data.find((note: Note) => note.name === targetName)
 		: notes.value?.data.find(
 				(note: Note) => note.highlighted_text === selectedText.value
 		  )
-	if (!notesToDelete) return
+
+	if (!notesToDelete) {
+		// The span outlived the note behind it — the temporary scroll-to marker,
+		// or a highlight whose note is already gone. Clear the leftover markup so
+		// the menu stops offering to remove something that no longer exists,
+		// instead of leaving the click doing nothing at all.
+		if (el) removeHighlightElement(el)
+		resetStates()
+		return
+	}
+
 	notes.value?.delete.submit(notesToDelete.name, {
 		onSuccess() {
+			// Unwrap the spans rather than clearing their background: a span left
+			// in place still counts as a highlight, so the menu would keep
+			// offering to remove it and the phrase could not be highlighted
+			// cleanly again.
+			removeHighlight(notesToDelete.name)
 			resetStates()
-			document.querySelectorAll('.highlighted-text').forEach((el) => {
-				const element = el as HTMLElement
-				if (element.dataset.name === notesToDelete.name) {
-					element.style.backgroundColor = 'transparent'
-				}
-			})
 		},
 		onError(err: any) {
 			console.error('Error deleting highlight:', err)

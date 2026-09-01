@@ -14,7 +14,7 @@
   "course",
   "module",
   "course_title",
-  "instructor",
+  "instructors",
   "scorm_section",
   "is_scorm_package",
   "scorm_package",
@@ -27,10 +27,11 @@
  ],
  "fields": [
   {
-   "fieldname": "instructor",
-   "fieldtype": "Link",
-   "label": "Instructor",
-   "options": "User"
+   "description": "Users who teach this session. Shown to learners on the course outline.",
+   "fieldname": "instructors",
+   "fieldtype": "Table",
+   "label": "Instructors",
+   "options": "Course Instructor"
   },
   {
    "fieldname": "course",
@@ -137,7 +138,7 @@
    "link_fieldname": "chapter"
   }
  ],
- "modified": "2025-05-29 12:38:26.266673",
+ "modified": "2026-09-01 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "LMS",
  "name": "Course Chapter",

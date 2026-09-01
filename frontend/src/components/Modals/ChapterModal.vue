@@ -46,15 +46,19 @@
 				</div>
 				<div>
 					<label class="block mb-1.5 text-xs text-ink-gray-5">
-						{{ __('Chapter Instructor') }}
+						{{ __('Session Instructors') }}
 					</label>
 					<Autocomplete
-						:modelValue="chapter.instructor"
+						:modelValue="chapter.instructors"
 						:options="instructorOptions"
 						:placeholder="__('Search users...')"
 						variant="outline"
+						multiple
 						@update:modelValue="onInstructorSelect"
 					/>
+					<p class="mt-1.5 text-p-sm text-ink-gray-5">
+						{{ __('Pick everyone who teaches this session.') }}
+					</p>
 				</div>
 				<Switch
 					size="sm"
@@ -137,7 +141,9 @@ interface ChapterForm {
 	title: string
 	is_scorm_package: 0 | 1
 	scorm_package: ScormPackage
-	instructor: string
+	// Autocomplete in `multiple` mode works in option objects, so the form
+	// holds them as such and only the user ids are sent on save.
+	instructors: InstructorOption[]
 	status: ChapterStatus
 }
 
@@ -161,7 +167,7 @@ const chapter = reactive<ChapterForm>({
 	title: '',
 	is_scorm_package: 0,
 	scorm_package: null,
-	instructor: '',
+	instructors: [],
 	status: 'Draft',
 })
 
@@ -178,16 +184,19 @@ const instructorSearch = createResource({
 
 const instructorOptions = computed<InstructorOption[]>(() => {
 	const list = (instructorSearch.data || []) as InstructorOption[]
-	// If editing a chapter with an existing instructor not in the list yet, prepend it
-	if (chapter.instructor && !list.some((o) => o.value === chapter.instructor)) {
-		return [{ value: chapter.instructor, label: chapter.instructor }, ...list]
-	}
-	return list
+	// Anyone already assigned who isn't in the fetched list (their role changed,
+	// or the search is paginated past them) is prepended, so editing a session
+	// never silently drops an existing instructor.
+	const missing = chapter.instructors.filter(
+		(selected) => !list.some((o) => o.value === selected.value)
+	)
+	return missing.length ? [...missing, ...list] : list
 })
 
-// Autocomplete emits the full option object on select — extract just the string value
-function onInstructorSelect(option: InstructorOption | null) {
-	chapter.instructor = option?.value || ''
+// Autocomplete emits the selected option objects; keep them as-is for the
+// control and unwrap to user ids only when saving.
+function onInstructorSelect(options: InstructorOption[] | null) {
+	chapter.instructors = options || []
 }
 
 const chapterResource = createResource({
@@ -199,7 +208,7 @@ const chapterResource = createResource({
 			is_scorm_package: chapter.is_scorm_package,
 			scorm_package: chapter.scorm_package,
 			name: props.chapterDetail?.name,
-			instructor: chapter.instructor || null,
+			instructors: chapter.instructors.map((option) => option.value),
 			// Creating: leave it to the server so a new session is always a
 			// draft. Editing: send what the form shows so a status change sticks.
 			status: props.chapterDetail ? chapter.status : null,
@@ -253,7 +262,7 @@ const cleanChapter = () => {
 	chapter.title = ''
 	chapter.is_scorm_package = 0
 	chapter.scorm_package = null
-	chapter.instructor = ''
+	chapter.instructors = []
 	chapter.status = 'Draft'
 }
 
@@ -285,7 +294,11 @@ watch(
 		chapter.title = newChapter?.title ?? ''
 		chapter.is_scorm_package = (newChapter?.is_scorm_package ?? 0) as 0 | 1
 		chapter.scorm_package = (newChapter?.scorm_package ?? null) as ScormPackage
-		chapter.instructor = newChapter?.instructor ?? ''
+		chapter.instructors = (newChapter?.instructors ?? []).map((i) => ({
+			value: i.name,
+			label: i.full_name || i.name,
+			description: i.name,
+		}))
 		// A chapter created before this feature has no status and is live.
 		chapter.status = newChapter?.status ?? 'Published'
 	}

@@ -139,6 +139,11 @@ class LearningSearch(SQLiteSearch):
 			return None
 
 		if doc.doctype == "Course Instructor":
+			# The same child table also holds session instructors, whose parent
+			# is a Course Chapter — not something the search index covers, and
+			# not a doctype the course/batch field lists can be read from.
+			if doc.parenttype not in ("LMS Course", "LMS Batch"):
+				return None
 			document = self.get_instructor_details(doc, document)
 		else:
 			if not document.get("modified"):

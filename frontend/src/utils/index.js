@@ -1295,8 +1295,60 @@ const wrapPhraseAcrossNodes = (root, phrase, color, name, scrollIntoView) => {
 	return firstSpan
 }
 
+// Take a highlight span back out of the page: its contents move up into its
+// place and the text nodes are re-joined, so the phrase reads as plain text
+// again and can be matched (and re-highlighted) as a whole later.
+const unwrapHighlightSpan = (span) => {
+	const parent = span.parentNode
+	if (!parent) return
+	while (span.firstChild) {
+		parent.insertBefore(span.firstChild, span)
+	}
+	parent.removeChild(span)
+	// Without this the wrap leaves the text split into fragments, and the next
+	// phrase that overlaps the old boundary no longer matches.
+	parent.normalize()
+}
+
+// Escape a note name for use inside a quoted attribute selector. Only the quote
+// and the backslash are special in that position, and this keeps the lookup off
+// a global that is missing in some environments this code runs in.
+const escapeAttrValue = (value) => String(value).replace(/(["\\])/g, '\\$1')
+
+// Remove a rendered highlight. A phrase that crossed element boundaries was
+// wrapped in several spans sharing one `data-name`, so every one has to go —
+// and they have to go for real. Clearing the background only hid the highlight
+// while leaving `.highlighted-text` in the DOM, which kept the notes menu
+// offering "Remove Highlight" for text that no longer had one.
+export const removeHighlight = (name) => {
+	if (!name) return
+	document
+		.querySelectorAll(`.highlighted-text[data-name="${escapeAttrValue(name)}"]`)
+		.forEach(unwrapHighlightSpan)
+}
+
+// Remove one resolved span (plus any siblings sharing its name). Used when a
+// span has outlived the note behind it and there is no name to look up.
+export const removeHighlightElement = (span) => {
+	if (!span) return
+	const name = span.dataset?.name
+	if (name) return removeHighlight(name)
+	unwrapHighlightSpan(span)
+}
+
 export const highlightText = (note, scrollIntoView = false) => {
 	if (!note?.highlighted_text) return
+
+	// Deleting or adding a note refetches the whole list, which re-runs this for
+	// every note. Without this guard each pass wraps the same phrase again,
+	// nesting a span inside the one already there.
+	if (
+		!scrollIntoView &&
+		note.name &&
+		document.querySelector(`.highlighted-text[data-name="${escapeAttrValue(note.name)}"]`)
+	) {
+		return
+	}
 
 	const root = getRootNode()
 	if (!root) return
@@ -1317,11 +1369,12 @@ export const highlightText = (note, scrollIntoView = false) => {
 			block: 'center',
 		})
 		setTimeout(() => {
+			// The scroll-to marker is temporary and carries no note. Take it out
+			// entirely rather than just dropping its border, or it lingers as a
+			// `.highlighted-text` span that the notes menu treats as a real
+			// highlight and offers to remove.
 			document.querySelectorAll('.highlighted-text').forEach((el) => {
-				if (el.dataset.name === note.name) {
-					el.style.border = 'none'
-					el.style.borderRadius = '0px'
-				}
+				if (el.dataset.name === note.name) unwrapHighlightSpan(el)
 			})
 		}, 3000)
 	}

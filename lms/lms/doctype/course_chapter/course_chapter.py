@@ -18,6 +18,26 @@ class CourseChapter(Document):
 		if not self.status:
 			self.status = "Draft"
 
+	def validate(self):
+		self.deduplicate_instructors()
+
+	def deduplicate_instructors(self):
+		"""Keep at most one row per user, in the order they were added.
+
+		A session can be taught by several people, but the same person twice is
+		always a mistake — and it would render as a duplicate name in the
+		outline.
+		"""
+		seen = set()
+		rows = []
+		for row in self.instructors:
+			if not row.instructor or row.instructor in seen:
+				continue
+			seen.add(row.instructor)
+			row.idx = len(rows) + 1
+			rows.append(row)
+		self.instructors = rows
+
 	def on_update(self):
 		self.update_lesson_count()
 

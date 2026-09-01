@@ -94,9 +94,16 @@ export interface OutlineChapter {
 	is_scorm_package?: 0 | 1
 	scorm_package?: { file_name: string; file_size: number } | null
 	lessons?: OutlineLesson[]
-	instructor?: string | null
-	instructor_name?: string | null
-	instructor_username?: string | null
+	// A session can be taught by several people; empty when none are assigned.
+	instructors?: SessionInstructor[]
+}
+
+/** A user assigned to teach a session, as returned with the course outline. */
+export interface SessionInstructor {
+	name: string
+	username?: string | null
+	full_name?: string | null
+	user_image?: string | null
 }
 
 export interface CourseModule {
@@ -133,7 +140,7 @@ export interface ChapterDetailInput {
 	title?: string
 	is_scorm_package?: 0 | 1
 	scorm_package?: { file_name: string; file_size: number } | null
-	instructor?: string | null
+	instructors?: SessionInstructor[]
 	status?: ChapterStatus
 }
 

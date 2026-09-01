@@ -110,6 +110,18 @@
 					'zen-dark': zenModeEnabled && zenDark,
 				}"
 			>
+				<!-- #23: close button pinned to the top right of the Zen Mode
+				     viewport so leaving doesn't depend on knowing the Esc key. -->
+				<Tooltip v-if="zenModeEnabled" :text="__('Exit Zen Mode')">
+					<Button
+						class="fixed top-4 end-4 z-20"
+						@click="exitFullScreen()"
+					>
+						<template #icon>
+							<X class="w-4 h-4 stroke-1.5" />
+						</template>
+					</Button>
+				</Tooltip>
 				<div
 					class="border-e pt-5 pb-10"
 					:class="{
@@ -370,6 +382,7 @@ import {
 	NotebookPen,
 	Sun,
 	TrendingUp,
+	X,
 } from 'lucide-vue-next'
 import {
 	getEditorTools,
@@ -1184,6 +1197,20 @@ const goFullScreen = () => {
 		lessonContainer.value.webkitRequestFullscreen()
 	} else if (lessonContainer.value.msRequestFullscreen) {
 		lessonContainer.value.msRequestFullscreen()
+	}
+}
+
+// #23: explicit way out of Zen Mode for users who don't know Esc exits
+// fullscreen (and for browsers where the native hint has faded).
+const exitFullScreen = () => {
+	if (document.exitFullscreen) {
+		document.exitFullscreen()
+	} else if (document.mozCancelFullScreen) {
+		document.mozCancelFullScreen()
+	} else if (document.webkitExitFullscreen) {
+		document.webkitExitFullscreen()
+	} else if (document.msExitFullscreen) {
+		document.msExitFullscreen()
 	}
 }
 
