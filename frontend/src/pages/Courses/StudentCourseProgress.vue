@@ -172,6 +172,11 @@ const props = defineProps<{
 	lessons: any
 }>()
 
+// pageLength is explicit because frappe-ui defaults list resources to 20 rows.
+// The dialog renders every lesson of the course and looks each one up in this
+// list, so on a course with more than 20 completed lessons the older ones fell
+// off the page and rendered as Pending even though the learner had finished
+// them. There is no paging UI here - fetch the whole set in one go.
 const lessonProgress = createListResource({
 	doctype: 'LMS Course Progress',
 	filters: {
@@ -179,6 +184,7 @@ const lessonProgress = createListResource({
 		member: ['=', props.student?.member],
 	},
 	fields: ['name', 'lesson', 'status'],
+	pageLength: 500,
 	auto: true,
 })
 
@@ -192,8 +198,11 @@ const assessmentProgress = createResource({
 })
 
 const getLessonStatus = (lesson: any) => {
+	// Match on lesson_name, not lesson: the rows come from
+	// get_lesson_completion_stats, where `lesson` is a left-joined progress
+	// column and is null for any lesson nobody in the course has finished yet.
 	return (
-		lessonProgress.data?.find((lp: any) => lp.lesson === lesson.lesson)
+		lessonProgress.data?.find((lp: any) => lp.lesson === lesson.lesson_name)
 			?.status || __('Pending')
 	)
 }

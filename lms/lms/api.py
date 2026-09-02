@@ -2694,8 +2694,31 @@ def get_course_programming_exercise_progress(course: str, member: str):
 
 
 def get_assessment_from_lesson(course: str, assessment_type: str):
+	"""Assessments embedded in a course's lessons, in outline order.
+
+	"Course Lesson" sorts by `modified desc`, so listing the lessons with a
+	plain get_all walked them in last-edited order and the assessment panels
+	came out shuffled (2.1, then 9.2, then 5.1). Walk the outline instead —
+	chapter position, then lesson position — so the panels read top to bottom
+	like the course does, and line up with the Lesson Progress list beside
+	them, which is already ordered this way.
+	"""
+	ChapterReference = frappe.qb.DocType("Chapter Reference")
+	LessonReference = frappe.qb.DocType("Lesson Reference")
+	Lesson = frappe.qb.DocType("Course Lesson")
+
 	assessments = []
-	lessons = frappe.get_all("Course Lesson", {"course": course}, ["name", "title", "content"])
+	lessons = (
+		frappe.qb.from_(LessonReference)
+		.join(ChapterReference)
+		.on(LessonReference.parent == ChapterReference.chapter)
+		.join(Lesson)
+		.on(LessonReference.lesson == Lesson.name)
+		.select(Lesson.name, Lesson.title, Lesson.content)
+		.where(ChapterReference.parent == course)
+		.orderby(ChapterReference.idx, LessonReference.idx)
+		.run(as_dict=True)
+	)
 
 	for lesson in lessons:
 		if lesson.content:
