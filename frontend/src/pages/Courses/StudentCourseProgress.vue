@@ -37,7 +37,7 @@
 
 				<div class="grid gap-5" :class="hasAssessmentData ? 'grid-cols-2' : ''">
 					<div
-						v-if="lessons.data"
+						v-if="orderedLessons.length"
 						class="border border-outline-gray-modals rounded-lg px-3 pt-3 max-h-[60vh] overflow-y-auto"
 					>
 						<div>
@@ -46,7 +46,7 @@
 							</div>
 						</div>
 						<div
-							v-for="progress in lessons.data"
+							v-for="progress in orderedLessons"
 							class="flex justify-between text-sm py-2 my-1"
 						>
 							<div class="">
@@ -74,7 +74,7 @@
 
 					<div class="space-y-3">
 						<div
-							v-if="assessmentProgress.data?.quizzes?.length"
+							v-if="orderedQuizzes.length"
 							class="border border-outline-gray-modals rounded-lg px-3 pt-3 h-fit"
 						>
 							<div class="grid grid-cols-4 gap-5 text-ink-gray-5 mb-5">
@@ -89,11 +89,16 @@
 								</div>
 							</div>
 							<div
-								v-for="quiz in assessmentProgress.data.quizzes"
+								v-for="quiz in orderedQuizzes"
 								class="grid grid-cols-4 gap-15 text-sm py-1 my-1"
 							>
 								<div class="col-span-2 leading-5">
-									{{ quiz.quiz_title }}
+									<span v-if="sequenceLabel(quiz)" class="me-3 text-xs">
+										{{ sequenceLabel(quiz) }}
+									</span>
+									<span>
+										{{ quiz.quiz_title }}
+									</span>
 								</div>
 								<div>
 									{{ quiz.score }}
@@ -103,7 +108,7 @@
 						</div>
 
 						<div
-							v-if="assessmentProgress.data?.assignments?.length"
+							v-if="orderedAssignments.length"
 							class="border border-outline-gray-modals rounded-lg px-3 pt-3 h-fit"
 						>
 							<div>
@@ -112,11 +117,16 @@
 								</div>
 							</div>
 							<div
-								v-for="assignment in assessmentProgress.data.assignments"
+								v-for="assignment in orderedAssignments"
 								class="flex justify-between text-sm py-2 my-1"
 							>
 								<div>
-									{{ assignment.assignment_title }}
+									<span v-if="sequenceLabel(assignment)" class="me-3 text-xs">
+										{{ sequenceLabel(assignment) }}
+									</span>
+									<span>
+										{{ assignment.assignment_title }}
+									</span>
 								</div>
 								<Badge :theme="getAssessmentStatusTheme(assignment.status)">
 									{{ assignment.status }}
@@ -125,7 +135,7 @@
 						</div>
 
 						<div
-							v-if="assessmentProgress.data?.exercises?.length"
+							v-if="orderedExercises.length"
 							class="border border-outline-gray-modals rounded-lg px-3 pt-3 h-fit"
 						>
 							<div>
@@ -134,11 +144,16 @@
 								</div>
 							</div>
 							<div
-								v-for="exercise in assessmentProgress.data.exercises"
+								v-for="exercise in orderedExercises"
 								class="flex justify-between text-sm py-2 my-1"
 							>
 								<div>
-									{{ exercise.exercise_title }}
+									<span v-if="sequenceLabel(exercise)" class="me-3 text-xs">
+										{{ sequenceLabel(exercise) }}
+									</span>
+									<span>
+										{{ exercise.exercise_title }}
+									</span>
 								</div>
 								<Badge :theme="getAssessmentStatusTheme(exercise.status)">
 									{{ exercise.status }}
@@ -197,6 +212,32 @@ const assessmentProgress = createResource({
 	auto: true,
 })
 
+// Every panel in this dialog reads in course order: chapter position, then
+// lesson position. The lists are sorted here rather than trusted as received --
+// `lessons` is the dashboard's own resource, and its "Sort by" control reorders
+// that array in place, which used to leak into this dialog and show a student's
+// lessons by completion rate instead of by sequence.
+const bySequence = <T extends Record<string, any>>(rows: T[] | undefined): T[] =>
+	[...(rows || [])].sort(
+		(a, b) => (a.chapter_idx || 0) - (b.chapter_idx || 0) || (a.idx || 0) - (b.idx || 0)
+	)
+
+const orderedLessons = computed(() => bySequence(props.lessons?.data))
+const orderedQuizzes = computed(() =>
+	bySequence(assessmentProgress.data?.quizzes)
+)
+const orderedAssignments = computed(() =>
+	bySequence(assessmentProgress.data?.assignments)
+)
+const orderedExercises = computed(() =>
+	bySequence(assessmentProgress.data?.exercises)
+)
+
+// "2.1" -- the same chapter.lesson label the Lesson Progress list uses, so a
+// quiz or assignment can be traced back to where it sits in the outline.
+const sequenceLabel = (row: any): string =>
+	row?.chapter_idx && row?.idx ? `${row.chapter_idx}.${row.idx}` : ''
+
 const getLessonStatus = (lesson: any) => {
 	// Match on lesson_name, not lesson: the rows come from
 	// get_lesson_completion_stats, where `lesson` is a left-joined progress
@@ -223,13 +264,10 @@ const getAssessmentStatusTheme = (status: string) => {
 }
 
 const hasAssessmentData = computed(() => {
-	return (
-		(assessmentProgress.data?.quizzes &&
-			assessmentProgress.data.quizzes.length > 0) ||
-		(assessmentProgress.data?.assignments &&
-			assessmentProgress.data.assignments.length > 0) ||
-		(assessmentProgress.data?.exercises &&
-			assessmentProgress.data.exercises.length > 0)
+	return Boolean(
+		orderedQuizzes.value.length ||
+			orderedAssignments.value.length ||
+			orderedExercises.value.length
 	)
 })
 </script>

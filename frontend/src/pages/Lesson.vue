@@ -110,18 +110,6 @@
 					'zen-dark': zenModeEnabled && zenDark,
 				}"
 			>
-				<!-- #23: close button pinned to the top right of the Zen Mode
-				     viewport so leaving doesn't depend on knowing the Esc key. -->
-				<Tooltip v-if="zenModeEnabled" :text="__('Exit Zen Mode')">
-					<Button
-						class="fixed top-4 end-4 z-20"
-						@click="exitFullScreen()"
-					>
-						<template #icon>
-							<X class="w-4 h-4 stroke-1.5" />
-						</template>
-					</Button>
-				</Tooltip>
 				<div
 					class="border-e pt-5 pb-10"
 					:class="{
@@ -164,7 +152,7 @@
 
 							<div
 								v-if="zenModeEnabled"
-								class="flex items-center gap-x-2 mt-2 md:mt-0"
+								class="flex flex-wrap items-center justify-end gap-2 mt-2 md:mt-0"
 							>
 								<!-- #23: optional full dark theme toggle -->
 								<Tooltip :text="zenDark ? __('Light theme') : __('Dark theme')">
@@ -189,17 +177,17 @@
 									</span>
 								</Button>
 
-				<Button
-					v-if="lesson.data.next_unlocked || lesson.data.next"
-					@click="switchLesson('next')"
-				>
-					<template #suffix>
-						<ChevronRight class="w-4 h-4 stroke-1" />
-					</template>
-					<span>
-						{{ __('Next') }}
-					</span>
-				</Button>
+								<Button
+									v-if="lesson.data.next_unlocked || lesson.data.next"
+									@click="switchLesson('next')"
+								>
+									<template #suffix>
+										<ChevronRight class="w-4 h-4 stroke-1" />
+									</template>
+									<span>
+										{{ __('Next') }}
+									</span>
+								</Button>
 
 								<router-link
 									v-else
@@ -212,6 +200,23 @@
 										{{ __('Back to Course') }}
 									</Button>
 								</router-link>
+
+								<!-- #23: the way out of Zen Mode sits with Previous / Next
+								     rather than pinned to the viewport corner, where it went
+								     unnoticed, and carries a label so it doesn't depend on
+								     reading an icon (or knowing that Esc exits). -->
+								<Button
+									variant="solid"
+									class="zen-exit-button"
+									@click="exitFullScreen()"
+								>
+									<template #prefix>
+										<X class="w-4 h-4 stroke-1.5" />
+									</template>
+									<span>
+										{{ __('Exit Zen Mode') }}
+									</span>
+								</Button>
 							</div>
 						</div>
 
@@ -1316,6 +1321,16 @@ usePageMeta(() => {
 }
 .zen-dark .bg-surface-gray-2 {
 	background-color: #1e293b !important;
+}
+
+/* #23: keep the Exit button reading as the way out in the dark Zen theme,
+   where a solid button's dark gray sinks into the background. */
+.zen-dark .zen-exit-button {
+	background-color: #e2e8f0 !important;
+	color: #0f172a !important;
+}
+.zen-dark .zen-exit-button:hover {
+	background-color: #f8fafc !important;
 }
 
 .lesson-content p {

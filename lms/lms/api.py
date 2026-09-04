@@ -2613,7 +2613,7 @@ def get_course_quiz_progress(course: str, member: str):
 		submissions = frappe.get_all(
 			"LMS Quiz Submission",
 			{
-				"quiz": quiz,
+				"quiz": quiz.name,
 				"member": member,
 			},
 			["name", "score", "percentage", "quiz", "quiz_title"],
@@ -2621,16 +2621,19 @@ def get_course_quiz_progress(course: str, member: str):
 			limit=1,
 		)
 		if len(submissions):
-			attempts.append(submissions[0])
+			attempt = submissions[0]
 		else:
-			attempts.append(
+			attempt = frappe._dict(
 				{
-					"quiz": quiz,
-					"quiz_title": frappe.db.get_value("LMS Quiz", quiz, "title"),
+					"quiz": quiz.name,
+					"quiz_title": frappe.db.get_value("LMS Quiz", quiz.name, "title"),
 					"score": 0,
 					"percentage": 0,
 				}
 			)
+
+		attempt.update({"chapter_idx": quiz.chapter_idx, "idx": quiz.idx})
+		attempts.append(attempt)
 
 	return attempts
 
@@ -2643,7 +2646,7 @@ def get_course_assignment_progress(course: str, member: str):
 		assignment_subs = frappe.get_all(
 			"LMS Assignment Submission",
 			{
-				"assignment": assignment,
+				"assignment": assignment.name,
 				"member": member,
 			},
 			["name", "status", "assignment", "assignment_title"],
@@ -2651,15 +2654,18 @@ def get_course_assignment_progress(course: str, member: str):
 			limit=1,
 		)
 		if len(assignment_subs):
-			submissions.append(assignment_subs[0])
+			submission = assignment_subs[0]
 		else:
-			submissions.append(
+			submission = frappe._dict(
 				{
-					"assignment": assignment,
-					"assignment_title": frappe.db.get_value("LMS Assignment", assignment, "title"),
+					"assignment": assignment.name,
+					"assignment_title": frappe.db.get_value("LMS Assignment", assignment.name, "title"),
 					"status": "Not Submitted",
 				}
 			)
+
+		submission.update({"chapter_idx": assignment.chapter_idx, "idx": assignment.idx})
+		submissions.append(submission)
 
 	return submissions
 
@@ -2672,7 +2678,7 @@ def get_course_programming_exercise_progress(course: str, member: str):
 		exercise_subs = frappe.get_all(
 			"LMS Programming Exercise Submission",
 			{
-				"exercise": exercise,
+				"exercise": exercise.name,
 				"member": member,
 			},
 			["name", "status", "exercise", "exercise_title"],
@@ -2680,15 +2686,20 @@ def get_course_programming_exercise_progress(course: str, member: str):
 			limit=1,
 		)
 		if len(exercise_subs):
-			submissions.append(exercise_subs[0])
+			submission = exercise_subs[0]
 		else:
-			submissions.append(
+			submission = frappe._dict(
 				{
-					"exercise": exercise,
-					"exercise_title": frappe.db.get_value("LMS Programming Exercise", exercise, "title"),
+					"exercise": exercise.name,
+					"exercise_title": frappe.db.get_value(
+						"LMS Programming Exercise", exercise.name, "title"
+					),
 					"status": "Not Attempted",
 				}
 			)
+
+		submission.update({"chapter_idx": exercise.chapter_idx, "idx": exercise.idx})
+		submissions.append(submission)
 
 	return submissions
 
@@ -2702,6 +2713,10 @@ def get_assessment_from_lesson(course: str, assessment_type: str):
 	chapter position, then lesson position — so the panels read top to bottom
 	like the course does, and line up with the Lesson Progress list beside
 	them, which is already ordered this way.
+
+	Each entry also carries the position of the lesson it sits in
+	(`chapter_idx`, `idx`), so a progress row can be labelled "2.1" like the
+	lessons are and the sequence is visible rather than merely implied.
 	"""
 	ChapterReference = frappe.qb.DocType("Chapter Reference")
 	LessonReference = frappe.qb.DocType("Lesson Reference")
@@ -2714,7 +2729,13 @@ def get_assessment_from_lesson(course: str, assessment_type: str):
 		.on(LessonReference.parent == ChapterReference.chapter)
 		.join(Lesson)
 		.on(LessonReference.lesson == Lesson.name)
-		.select(Lesson.name, Lesson.title, Lesson.content)
+		.select(
+			Lesson.name,
+			Lesson.title,
+			Lesson.content,
+			LessonReference.idx,
+			ChapterReference.idx.as_("chapter_idx"),
+		)
 		.where(ChapterReference.parent == course)
 		.orderby(ChapterReference.idx, LessonReference.idx)
 		.run(as_dict=True)
@@ -2727,7 +2748,17 @@ def get_assessment_from_lesson(course: str, assessment_type: str):
 				if block.get("type") == assessment_type:
 					data_field = "exercise" if assessment_type == "program" else assessment_type
 					assessment_name = block.get("data", {}).get(data_field)
-					assessments.append(assessment_name)
+					if not assessment_name:
+						continue
+					assessments.append(
+						frappe._dict(
+							{
+								"name": assessment_name,
+								"chapter_idx": lesson.chapter_idx,
+								"idx": lesson.idx,
+							}
+						)
+					)
 
 	return assessments
 
@@ -2838,13 +2869,16 @@ def search_users_by_role(
 def get_instructor_options(txt: str = "", page_length: int = 20):
 	"""Return enabled instructors for the chapter-level (session) instructor selector.
 
-	Only users who hold an instructor-type role (Course Creator or Moderator) are
-	returned, so students and other non-teaching users never appear in the dropdown.
+	Faculty teaching a session hold the Evaluator (Batch Evaluator) role; requiring
+	Course Creator on top of it kept them out of this dropdown, so Evaluator is
+	accepted here until the Roles and Rights exercise settles the role model.
+	Course Creator and Moderator stay listed so nobody who teaches today drops off.
+	Students and other non-teaching users still never appear.
 	"""
-	if not (has_moderator_role() or has_course_instructor_role()):
+	if not (has_moderator_role() or has_course_instructor_role() or has_evaluator_role()):
 		frappe.throw(_("You are not authorized to view instructor options."), frappe.PermissionError)
 
-	instructor_roles = ["Course Creator", "Moderator"]
+	instructor_roles = ["Batch Evaluator", "Course Creator", "Moderator"]
 	instructor_users = frappe.get_all(
 		"Has Role",
 		filters={"parenttype": "User", "role": ["in", instructor_roles]},
