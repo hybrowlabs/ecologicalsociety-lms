@@ -40,10 +40,8 @@
 						v-if="orderedLessons.length"
 						class="border border-outline-gray-modals rounded-lg px-3 pt-3 max-h-[60vh] overflow-y-auto"
 					>
-						<div>
-							<div class="text-ink-gray-5 mb-5">
-								{{ __('Lesson Progress') }}
-							</div>
+						<div class="sticky top-0 z-10 bg-surface-white py-3 text-ink-gray-5">
+							{{ __('Lesson Progress') }}
 						</div>
 						<div
 							v-for="progress in orderedLessons"
@@ -75,9 +73,11 @@
 					<div class="space-y-3">
 						<div
 							v-if="orderedQuizzes.length"
-							class="border border-outline-gray-modals rounded-lg px-3 pt-3 h-fit"
+							class="border border-outline-gray-modals rounded-lg px-3 pt-3 max-h-[60vh] overflow-y-auto"
 						>
-							<div class="grid grid-cols-4 gap-5 text-ink-gray-5 mb-5">
+							<div
+								class="sticky top-0 z-10 grid grid-cols-4 gap-5 bg-surface-white py-3 text-ink-gray-5"
+							>
 								<div class="col-span-2">
 									{{ __('Quiz Progress') }}
 								</div>

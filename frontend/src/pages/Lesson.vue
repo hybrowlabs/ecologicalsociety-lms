@@ -201,22 +201,18 @@
 									</Button>
 								</router-link>
 
-								<!-- #23: the way out of Zen Mode sits with Previous / Next
-								     rather than pinned to the viewport corner, where it went
-								     unnoticed, and carries a label so it doesn't depend on
-								     reading an icon (or knowing that Esc exits). -->
-								<Button
-									variant="solid"
-									class="zen-exit-button"
-									@click="exitFullScreen()"
-								>
-									<template #prefix>
-										<X class="w-4 h-4 stroke-1.5" />
-									</template>
-									<span>
-										{{ __('Exit Zen Mode') }}
-									</span>
-								</Button>
+								<!-- #23: the way out of Zen Mode sits with Previous / Next. -->
+								<Tooltip :text="__('Exit Zen Mode')">
+									<Button
+										variant="solid"
+										class="zen-exit-button"
+										@click="exitFullScreen()"
+									>
+										<template #icon>
+											<X class="w-4 h-4 stroke-1.5" />
+										</template>
+									</Button>
+								</Tooltip>
 							</div>
 						</div>
 

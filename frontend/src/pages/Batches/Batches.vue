@@ -267,8 +267,13 @@ const updateTabFilter = () => {
 }
 
 const updateStudentFilter = () => {
-	if (!user.data || (is_student.value && currentTab.value != 'enrolled')) {
+	if (!user.data) {
 		filters.value['start_date'] = ['>=', dayjs().format('YYYY-MM-DD')]
+		filters.value['published'] = 1
+	} else if (is_student.value && currentTab.value != 'enrolled') {
+		// Students should see every published batch they can access in All,
+		// including batches that have already started or ended.
+		delete filters.value['start_date']
 		filters.value['published'] = 1
 	}
 }
