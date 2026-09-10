@@ -211,7 +211,7 @@ const fetchMentionUsers = () => {
 						value: user.name,
 						label: user.full_name,
 					}
-				})
+				}).sort((a, b) => a.label.localeCompare(b.label))
 				renderEditor.value = true
 			})
 			.catch((err) => {

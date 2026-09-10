@@ -31,6 +31,7 @@
 					</div>
 					<TextEditor
 						:content="topic.reply"
+						:mentions="mentionUsers"
 						@change="(val) => (topic.reply = val)"
 						:editable="true"
 						:fixedMenu="true"
@@ -43,12 +44,13 @@
 </template>
 <script setup>
 import { call, Dialog, FormControl, TextEditor, toast } from 'frappe-ui'
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, inject } from 'vue'
 import { singularize } from '@/utils'
 import { useTelemetry } from 'frappe-ui/frappe'
 
 const topics = defineModel('reloadTopics')
 const { capture } = useTelemetry()
+const user = inject('$user')
 
 const props = defineProps({
 	title: {
@@ -76,8 +78,20 @@ const topic = reactive({
 })
 
 const instructorOptions = ref([])
+const mentionUsers = ref([])
 
 onMounted(() => {
+	if (user.data?.is_student) {
+		call('lms.lms.api.get_faculty_users').then((data) => {
+			mentionUsers.value = Object.values(data)
+				.map((mentionUser) => ({
+					value: mentionUser.name,
+					label: mentionUser.full_name,
+				}))
+				.sort((a, b) => a.label.localeCompare(b.label))
+		})
+	}
+
 	if (props.doctype === 'Course Lesson' && props.docname) {
 		call('ecological_society.discussions.get_lesson_instructors_for_questions', {
 			lesson: props.docname,

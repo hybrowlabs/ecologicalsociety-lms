@@ -510,23 +510,26 @@ def get_all_users():
 
 @frappe.whitelist()
 def get_faculty_users():
-	roles = ["Moderator", "Course Creator", "Batch Evaluator", "System Manager"]
+	# Student mentions are for evaluation questions and replies, so only
+	# enabled Batch Evaluators should be available in the @ picker.
 	users_with_roles = frappe.get_all(
 		"Has Role",
-		filters={"role": ["in", roles]},
-		pluck="parent"
+		filters={"role": "Batch Evaluator", "parenttype": "User"},
+		pluck="parent",
+		distinct=True,
 	)
-
-	faculty_names = list(set(users_with_roles))
-	faculty_names.append("Administrator")
+	users_with_roles = [
+		user for user in users_with_roles if user not in ("Administrator", "Guest")
+	]
 
 	users = frappe.get_all(
 		"User",
 		filters={
 			"enabled": 1,
-			"name": ["in", faculty_names]
+			"name": ["in", users_with_roles],
 		},
 		fields=["name", "full_name", "user_image"],
+		order_by="full_name asc",
 	)
 
 	return {user.name: user for user in users}
