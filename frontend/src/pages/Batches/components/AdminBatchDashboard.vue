@@ -36,6 +36,12 @@
 							:placeholder="__('Search by name')"
 							type="text"
 						/>
+						<Button :loading="downloading" @click="downloadProgress">
+							<template #prefix>
+								<Download class="size-4 stroke-1.5" />
+							</template>
+							{{ __('Download') }}
+						</Button>
 						<Button @click="showEnrollmentModal = true">
 							<template #prefix>
 								<Plus class="size-4 stroke-1.5" />
@@ -230,7 +236,8 @@ import {
 import { computed, inject, ref, watch } from 'vue'
 import type dayjsType from 'dayjs'
 import { formatAmount } from '@/utils'
-import { Plus, Trash2 } from 'lucide-vue-next'
+import { downloadFile } from '@/utils/downloadFile'
+import { Download, Plus, Trash2 } from 'lucide-vue-next'
 import BatchFeedback from '@/pages/Batches/components/BatchFeedback.vue'
 import BatchStudentProgress from '@/pages/Batches/components/BatchStudentProgress.vue'
 import NumberChartGraph from '@/components/NumberChartGraph.vue'
@@ -345,6 +352,24 @@ function confirmRemoveStudent() {
 		.catch((e: any) => {
 			toast.error(e?.messages?.[0] || __('Could not remove student'))
 		})
+}
+
+const downloading = ref(false)
+
+async function downloadProgress() {
+	downloading.value = true
+	try {
+		await downloadFile(
+			'/api/method/lms.lms.api.export_batch_student_progress?batch=' +
+				encodeURIComponent(props.batch?.data?.name),
+			'batch_progress.xlsx'
+		)
+	} catch (err) {
+		console.error(err)
+		toast.error(__('Could not download student progress'))
+	} finally {
+		downloading.value = false
+	}
 }
 
 const showProgressChart = computed(

@@ -2926,6 +2926,164 @@ def export_course_as_zip(course_name: str):
 	export_course_zip(course_name)
 
 
+PROGRESS_EXPORT_HEADERS = [
+	"Student Name",
+	"Course",
+	"Batch",
+	"Sessions Completed",
+	"Total Sessions",
+	"Course Completion %",
+	"Assignments Completed",
+	"Total Assignments",
+	"Assignment Completion %",
+	"Date of Download",
+]
+
+
+@frappe.whitelist()
+def export_batch_student_progress(batch: str):
+	"""Download an Excel sheet with one row per student per batch course."""
+	if not can_modify_batch(batch):
+		frappe.throw(_("You are not authorized to export the progress of this batch."), frappe.PermissionError)
+
+	batch_title = frappe.db.get_value("LMS Batch", batch, "title") or batch
+	download_date = format_date(getdate(), "dd-MM-yyyy")
+	courses = frappe.get_all("Batch Course", {"parent": batch}, ["course", "title"], order_by="idx")
+	course_info = {course.course: get_course_progress_export_info(course.course) for course in courses}
+	students = frappe.get_all(
+		"LMS Batch Enrollment", {"batch": batch}, ["member", "member_name"], order_by="member_name"
+	)
+
+	rows = [[_(header) for header in PROGRESS_EXPORT_HEADERS]]
+	for student in students:
+		for course in courses:
+			rows.append(
+				get_student_progress_export_row(
+					student, course.title, course_info[course.course], batch_title, download_date
+				)
+			)
+
+	send_progress_xlsx(rows, batch_title)
+
+
+@frappe.whitelist()
+def export_course_student_progress(course: str):
+	"""Download an Excel sheet with one row per student enrolled in the course."""
+	if not can_modify_course(course):
+		frappe.throw(_("You are not authorized to export the progress of this course."), frappe.PermissionError)
+
+	course_title = frappe.db.get_value("LMS Course", course, "title") or course
+	download_date = format_date(getdate(), "dd-MM-yyyy")
+	info = get_course_progress_export_info(course)
+	students = frappe.get_all(
+		"LMS Enrollment", {"course": course}, ["member", "member_name"], order_by="member_name"
+	)
+
+	# Batches that include this course, so each student can be shown against theirs
+	BatchCourse = frappe.qb.DocType("Batch Course")
+	BatchEnrollment = frappe.qb.DocType("LMS Batch Enrollment")
+	Batch = frappe.qb.DocType("LMS Batch")
+	student_batches = {}
+	for row in (
+		frappe.qb.from_(BatchEnrollment)
+		.join(BatchCourse)
+		.on(BatchCourse.parent == BatchEnrollment.batch)
+		.join(Batch)
+		.on(Batch.name == BatchEnrollment.batch)
+		.select(BatchEnrollment.member, Batch.title)
+		.where(BatchCourse.course == course)
+		.run(as_dict=True)
+	):
+		student_batches.setdefault(row.member, []).append(row.title)
+
+	rows = [[_(header) for header in PROGRESS_EXPORT_HEADERS]]
+	for student in students:
+		rows.append(
+			get_student_progress_export_row(
+				student,
+				course_title,
+				info,
+				", ".join(student_batches.get(student.member, [])),
+				download_date,
+			)
+		)
+
+	send_progress_xlsx(rows, course_title)
+
+
+def get_course_progress_export_info(course: str) -> dict:
+	"""Sessions (chapters) with their lessons, and the assignments embedded in the course."""
+	chapters = frappe.get_all("Chapter Reference", {"parent": course}, pluck="chapter")
+	return frappe._dict(
+		course=course,
+		chapter_lessons={
+			chapter: set(frappe.get_all("Lesson Reference", {"parent": chapter}, pluck="lesson"))
+			for chapter in chapters
+		},
+		assignments=list({a.name for a in get_assessment_from_lesson(course, "assignment")}),
+	)
+
+
+def get_student_progress_export_row(
+	student: dict, course_title: str, info: dict, batch_title: str, download_date: str
+) -> list:
+	completed_lessons = set(
+		frappe.get_all(
+			"LMS Course Progress",
+			{"member": student.member, "course": info.course, "status": "Complete"},
+			pluck="lesson",
+		)
+	)
+	# A session counts as completed once every lesson in it is complete
+	sessions_completed = sum(
+		1 for lessons in info.chapter_lessons.values() if lessons and lessons.issubset(completed_lessons)
+	)
+	progress = (
+		frappe.db.get_value("LMS Enrollment", {"course": info.course, "member": student.member}, "progress")
+		or 0
+	)
+
+	total_assignments = len(info.assignments)
+	assignments_completed = (
+		len(
+			frappe.get_all(
+				"LMS Assignment Submission",
+				{"member": student.member, "assignment": ["in", info.assignments]},
+				pluck="assignment",
+				distinct=True,
+			)
+		)
+		if total_assignments
+		else 0
+	)
+	assignment_percentage = (
+		flt(assignments_completed * 100 / total_assignments, 2) if total_assignments else 0
+	)
+
+	return [
+		student.member_name or student.member,
+		course_title,
+		batch_title,
+		sessions_completed,
+		len(info.chapter_lessons),
+		flt(progress, 2),
+		assignments_completed,
+		total_assignments,
+		assignment_percentage,
+		download_date,
+	]
+
+
+def send_progress_xlsx(rows: list, title: str):
+	from frappe.utils.xlsxutils import make_xlsx
+
+	xlsx_file = make_xlsx(rows, "Student Progress")
+	safe_title = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+	frappe.local.response.filename = f"{safe_title}_progress_{getdate()}.xlsx"
+	frappe.local.response.filecontent = xlsx_file.getvalue()
+	frappe.local.response.type = "binary"
+
+
 @frappe.whitelist()
 def import_course_from_zip(zip_file_path: str):
 	frappe.only_for(["Moderator", "Course Creator"])

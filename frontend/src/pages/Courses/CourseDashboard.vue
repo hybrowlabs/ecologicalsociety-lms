@@ -31,6 +31,12 @@
 							:placeholder="__('Search by name')"
 							type="text"
 						/>
+						<Button :loading="downloading" @click="downloadProgress">
+							<template #prefix>
+								<Download class="size-4 stroke-1.5" />
+							</template>
+							{{ __('Download') }}
+						</Button>
 						<Button @click="showEnrollmentModal = true">
 							<template #prefix>
 								<Plus class="size-4 stroke-1.5" />
@@ -295,9 +301,10 @@ import type { SelectOptionValue } from 'frappe-ui'
 import Select from '@/components/Controls/Select.vue'
 import { computed, inject, ref, watch } from 'vue'
 import type dayjsType from 'dayjs'
-import { Plus, Star, Trash2 } from 'lucide-vue-next'
+import { Download, Plus, Star, Trash2 } from 'lucide-vue-next'
 import { createDialog } from '@/utils/dialogs'
 import { formatAmount } from '@/utils'
+import { downloadFile } from '@/utils/downloadFile'
 import colors from '@/utils/frappe-ui-colors.json'
 import CourseEnrollmentModal from '@/pages/Courses/CourseEnrollmentModal.vue'
 import NumberChartGraph from '@/components/NumberChartGraph.vue'
@@ -400,6 +407,24 @@ watch(
 		}
 	}
 )
+
+const downloading = ref(false)
+
+const downloadProgress = async () => {
+	downloading.value = true
+	try {
+		await downloadFile(
+			'/api/method/lms.lms.api.export_course_student_progress?course=' +
+				encodeURIComponent(props.course.data?.name || ''),
+			'course_progress.xlsx'
+		)
+	} catch (err) {
+		console.error(err)
+		toast.error(__('Could not download student progress'))
+	} finally {
+		downloading.value = false
+	}
+}
 
 const averageCompletionRate = computed(() => {
 	let value = Math.ceil(chartDetails.data?.average_progress) || 0
