@@ -37,6 +37,7 @@
 		"enforce_assignment_completion",
 		"column_break_cprg",
 		"lesson_dwell_time",
+		"send_low_progress_reminder",
 		"signup_settings_tab",
 		"signup_settings_section",
 		"column_break_9",
@@ -526,6 +527,13 @@
 			"non_negative": 1
 		},
 		{
+			"default": "0",
+			"description": "On the last day of every month, email students whose course completion is below 30%.",
+			"fieldname": "send_low_progress_reminder",
+			"fieldtype": "Check",
+			"label": "Send Month-End Reminder for Low Course Progress"
+		},
+		{
 			"fieldname": "column_break_cprg",
 			"fieldtype": "Column Break"
 		},
@@ -552,7 +560,7 @@
 	"index_web_pages_for_search": 1,
 	"issingle": 1,
 	"links": [],
-	"modified": "2026-06-05 20:49:15.000000",
+	"modified": "2026-09-28 12:00:00.000000",
 	"modified_by": "Administrator",
 	"module": "LMS",
 	"name": "LMS Settings",

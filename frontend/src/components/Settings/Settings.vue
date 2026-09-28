@@ -330,6 +330,22 @@ const tabsStructure = computed(() => {
 								},
 							],
 						},
+						{
+							label: 'Reminders',
+							columns: [
+								{
+									fields: [
+										{
+											label: 'Send month-end reminder for low course progress',
+											name: 'send_low_progress_reminder',
+											type: 'checkbox',
+											description:
+												'On the last day of every month, email students whose course completion is below 30%, encouraging them to catch up.',
+										},
+									],
+								},
+							],
+						},
 					],
 				},
 				{

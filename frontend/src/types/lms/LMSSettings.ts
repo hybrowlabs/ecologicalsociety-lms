@@ -112,4 +112,6 @@ export interface LMSSettings {
 	send_payment_reminders_for_batch?: 0 | 1
 	/**	Send Payment Reminders for Course : Check	*/
 	send_payment_reminders_for_course?: 0 | 1
+	/**	Send Month-End Reminder for Low Course Progress : Check	*/
+	send_low_progress_reminder?: 0 | 1
 }

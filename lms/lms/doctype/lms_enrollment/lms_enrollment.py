@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import ceil
+from frappe.utils import ceil, get_last_day, getdate
 
 
 class LMSEnrollment(Document):
@@ -116,3 +116,55 @@ def update_program_progress(member):
 
 		average_progress = ceil(total_progress / len(courses))
 		frappe.db.set_value("LMS Program Member", program.name, "progress", average_progress)
+
+
+LOW_PROGRESS_THRESHOLD = 30
+
+
+def send_low_progress_reminder():
+	"""Runs daily; on the last day of the month, email students whose
+	course completion is below LOW_PROGRESS_THRESHOLD percent."""
+	if not frappe.db.get_single_value("LMS Settings", "send_low_progress_reminder"):
+		return
+
+	today = getdate()
+	if today != get_last_day(today):
+		return
+
+	outgoing_email_account = frappe.get_cached_value(
+		"Email Account", {"default_outgoing": 1, "enable_outgoing": 1}, "name"
+	)
+	if not (outgoing_email_account or frappe.conf.get("mail_login")):
+		return
+
+	Enrollment = frappe.qb.DocType("LMS Enrollment")
+	Course = frappe.qb.DocType("LMS Course")
+	User = frappe.qb.DocType("User")
+	enrollments = (
+		frappe.qb.from_(Enrollment)
+		.join(Course)
+		.on(Course.name == Enrollment.course)
+		.join(User)
+		.on(User.name == Enrollment.member)
+		.select(Enrollment.member, Course.title)
+		.where(
+			(Enrollment.progress < LOW_PROGRESS_THRESHOLD)
+			& (Course.published == 1)
+			& (User.enabled == 1)
+			& ((Enrollment.member_type == "Student") | Enrollment.member_type.isnull() | (Enrollment.member_type == ""))
+		)
+		.run(as_dict=True)
+	)
+
+	for enrollment in enrollments:
+		try:
+			frappe.sendmail(
+				recipients=enrollment.member,
+				subject=_("Catch up on your course: {0}").format(enrollment.title),
+				template="low_progress_reminder",
+				args={},
+				header=[_("Course Progress Reminder"), "orange"],
+				retry=3,
+			)
+		except Exception:
+			frappe.log_error(title=_("Low progress reminder failed for {0}").format(enrollment.member))
