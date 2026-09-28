@@ -129,3 +129,6 @@ lms.patches.v2_0.restore_system_manager_perms #13-05-2026
 lms.patches.v2_0.set_course_progress_defaults #02-06-2026
 lms.patches.v2_0.set_existing_chapters_published #07-08-2026
 lms.patches.v2_0.migrate_chapter_instructors #01-09-2026
+lms.patches.v2_0.seed_lms_roles_and_matrix #14-09-2026
+lms.patches.v2_0.migrate_has_role_to_lms_user_role #14-09-2026
+lms.patches.v2_0.backfill_course_instructor_scope_gaps #14-09-2026

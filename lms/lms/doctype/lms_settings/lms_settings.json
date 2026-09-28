@@ -9,6 +9,7 @@
 		"allow_guest_access",
 		"prevent_skipping_videos",
 		"send_calendar_invite_for_evaluations",
+		"legacy_role_fallback_enabled",
 		"column_break_zdel",
 		"disable_pwa",
 		"default_home",
@@ -148,6 +149,13 @@
 			"fieldname": "send_calendar_invite_for_evaluations",
 			"fieldtype": "Check",
 			"label": "Send calendar invite for evaluations"
+		},
+		{
+			"default": "1",
+			"description": "While enabled, the scoped role/rights engine falls back to the legacy Moderator/Course Creator/Batch Evaluator/LMS Student roles for any user who has no LMS User Role records yet. Disable only after the role migration has been reviewed and confirmed.",
+			"fieldname": "legacy_role_fallback_enabled",
+			"fieldtype": "Check",
+			"label": "Legacy Role Fallback Enabled"
 		},
 		{
 			"fieldname": "section_break_szgq",

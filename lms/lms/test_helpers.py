@@ -539,3 +539,15 @@ class BaseTestUtils(UnitTestCase):
 		submission.insert()
 		self.cleanup_items.append(("LMS Programming Exercise Submission", submission.name))
 		return submission
+
+	def _create_scoped_role(self, user, role, scope_type, course=None, batch=None):
+		filters = {"user": user, "role": role, "scope_type": scope_type, "course": course, "batch": batch}
+		existing = frappe.db.exists("LMS User Role", filters)
+		if existing:
+			return frappe.get_doc("LMS User Role", existing)
+
+		user_role = frappe.new_doc("LMS User Role")
+		user_role.update(filters)
+		user_role.insert(ignore_permissions=True)
+		self.cleanup_items.append(("LMS User Role", user_role.name))
+		return user_role

@@ -15,6 +15,8 @@ def after_sync():
 	create_lms_roles()
 	set_default_certificate_print_format()
 	give_lms_roles_to_admin()
+	seed_lms_roles_and_matrix_v2()
+	give_master_admin_to_administrator()
 
 
 def before_uninstall():
@@ -220,3 +222,21 @@ def delete_lms_roles():
 			frappe.db.delete("Has Role", {"role": role})
 			frappe.db.delete("Custom DocPerm", {"role": role})
 			frappe.db.delete("Role", role)
+
+
+def seed_lms_roles_and_matrix_v2():
+	"""Additive seeding of the new scoped role/rights model (LMS Role, LMS
+	Right, LMS Role Right Matrix) for fresh installs. Existing sites get the
+	same data via the `seed_lms_roles_and_matrix` patch, so both converge on
+	identical state; this just reuses that patch's `execute()` rather than
+	duplicating the matrix data here."""
+	from lms.patches.v2_0.seed_lms_roles_and_matrix import execute as seed_roles_and_matrix
+
+	seed_roles_and_matrix()
+
+
+def give_master_admin_to_administrator():
+	for scope_type in ("All Courses", "All Batches"):
+		filters = {"user": "Administrator", "role": "MasterAdmin", "scope_type": scope_type}
+		if not frappe.db.exists("LMS User Role", filters):
+			frappe.get_doc({"doctype": "LMS User Role", **filters}).insert(ignore_permissions=True)
