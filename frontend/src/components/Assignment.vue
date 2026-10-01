@@ -330,7 +330,7 @@ const assignment = createResource({
 	onSuccess(data) {
 		referenceFiles.value = data?.reference_files || []
 		if (props.submissionName != 'new') {
-			submissionResource.reload()
+			submissionResource.value.reload()
 		}
 	},
 })
@@ -341,27 +341,53 @@ const isVideoUrl = (file) => {
 	return /\.(mp4|webm|ogg|mov)(\?|$)/i.test(file || '')
 }
 
-const submissionResource = createDocumentResource({
-	doctype: 'LMS Assignment Submission',
-	name: props.submissionName,
-	auto: false,
-	onError(err) {
-		toast.error(err.messages?.[0] || err)
-	},
-})
+// frappe-ui caches document resources (in memory and IndexedDB) under the name
+// they were created with. A resource named 'new' must never be created or
+// renamed: its cache entry would later be restored into every other
+// assignment's empty form, prefilling it with another submission's file.
+const makeSubmissionResource = (name) => {
+	if (name == 'new') return { doc: null }
+	return createDocumentResource({
+		doctype: 'LMS Assignment Submission',
+		name: name,
+		auto: false,
+		onError(err) {
+			toast.error(err.messages?.[0] || err)
+		},
+	})
+}
 
-watch(submissionResource, () => {
-	if (!submissionResource.doc) return
-	if (submissionResource.doc.answer) {
-		answer.value = submissionResource.doc.answer
+const submissionResource = ref(makeSubmissionResource(props.submissionName))
+
+watch(
+	() => props.submissionName,
+	(name) => {
+		submissionResource.value = makeSubmissionResource(name)
+		if (name != 'new') {
+			submissionResource.value.reload()
+		} else {
+			answer.value = null
+			attachment.value = null
+			comments.value = null
+		}
 	}
-	if (submissionResource.doc.assignment_attachment) {
-		attachment.value = submissionResource.doc.assignment_attachment
+)
+
+watch(
+	() => submissionResource.value.doc,
+	(doc) => {
+		if (!doc) return
+		if (doc.answer) {
+			answer.value = doc.answer
+		}
+		if (doc.assignment_attachment) {
+			attachment.value = doc.assignment_attachment
+		}
+		if (doc.comments) {
+			comments.value = doc.comments
+		}
 	}
-	if (submissionResource.doc.comments) {
-		comments.value = submissionResource.doc.comments
-	}
-})
+)
 
 const submitAssignment = () => {
 	if (props.submissionName != 'new') {
@@ -408,8 +434,6 @@ const addNewSubmission = () => {
 			})
 			markLessonProgress()
 			isDirty.value = false
-			submissionResource.name = data.name
-			submissionResource.reload()
 		})
 		.catch((err) => {
 			toast.error(err.messages?.[0] || err)
@@ -419,13 +443,13 @@ const addNewSubmission = () => {
 
 const updateSubmission = () => {
 	let evaluator =
-		submissionResource.doc && submissionResource.doc.owner != user.data?.name
+		submissionResource.value.doc && submissionResource.value.doc.owner != user.data?.name
 			? user.data?.name
 			: null
 
-	submissionResource.setValue.submit(
+	submissionResource.value.setValue.submit(
 		{
-			...submissionResource.doc,
+			...submissionResource.value.doc,
 			evaluator: evaluator,
 			comments: comments.value,
 			answer: answer.value,
@@ -501,8 +525,8 @@ const canModifyAssignment = computed(() => {
 	if (props.submissionName == 'new') {
 		return true
 	} else if (
-		submissionResource.doc?.owner == user.data?.name &&
-		submissionResource.doc?.status == 'Not Graded'
+		submissionResource.value.doc?.owner == user.data?.name &&
+		submissionResource.value.doc?.status == 'Not Graded'
 	) {
 		return true
 	}
@@ -518,11 +542,11 @@ const submissionStatusOptions = computed(() => {
 })
 
 const statusTheme = computed(() => {
-	if (!submissionResource.doc) {
+	if (!submissionResource.value.doc) {
 		return 'orange'
-	} else if (submissionResource.doc.status == 'Pass') {
+	} else if (submissionResource.value.doc.status == 'Pass') {
 		return 'green'
-	} else if (submissionResource.doc.status == 'Not Graded') {
+	} else if (submissionResource.value.doc.status == 'Not Graded') {
 		return 'blue'
 	} else {
 		return 'red'
