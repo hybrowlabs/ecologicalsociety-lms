@@ -124,6 +124,13 @@
 						{{
 							__('You can only upload {0} files').format(assignment.data.type)
 						}}
+						<div>
+							{{
+								__('Maximum file size: {0} MB').format(
+									MAX_ASSIGNMENT_FILE_SIZE_MB
+								)
+							}}
+						</div>
 					</div>
 					<FileUploader
 						v-if="!attachment"
@@ -131,10 +138,7 @@
 						:uploadArgs="{
 							private: true,
 						}"
-						:validateFile="
-							(file) =>
-								validateFile(file, true, assignment.data.type.toLowerCase())
-						"
+						:validateFile="validateAssignmentFile"
 						@success="(file) => saveSubmission(file)"
 					>
 						<template #default="{ uploading, progress, openFileSelector }">
@@ -268,6 +272,8 @@ import { FileText, X } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { validateFile } from '@/utils'
 import PDFViewer from '@/components/PDFViewer.vue'
+
+const MAX_ASSIGNMENT_FILE_SIZE_MB = 15
 
 const answer = ref(null)
 const attachment = ref(null)
@@ -466,6 +472,17 @@ const updateSubmission = () => {
 			},
 		}
 	)
+}
+
+const validateAssignmentFile = (file) => {
+	if (file.size > MAX_ASSIGNMENT_FILE_SIZE_MB * 1024 * 1024) {
+		const msg = __('File size should not exceed {0} MB.').format(
+			MAX_ASSIGNMENT_FILE_SIZE_MB
+		)
+		toast.error(msg)
+		return msg
+	}
+	return validateFile(file, true, assignment.data.type.toLowerCase())
 }
 
 const saveSubmission = (file) => {

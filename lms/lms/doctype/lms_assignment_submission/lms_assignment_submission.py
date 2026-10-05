@@ -10,6 +10,7 @@ from frappe.utils import validate_url
 from lms.lms.utils import get_lms_route
 
 PRIVILEGED_ROLES = {"Moderator", "Course Creator", "Batch Evaluator", "System Manager"}
+MAX_ASSIGNMENT_FILE_SIZE_MB = 15
 
 
 class LMSAssignmentSubmission(Document):
@@ -17,6 +18,7 @@ class LMSAssignmentSubmission(Document):
 		self.enforce_member_ownership()
 		self.validate_duplicates()
 		self.validate_url()
+		self.validate_attachment_size()
 		self.validate_status()
 
 	def enforce_member_ownership(self):
@@ -45,6 +47,13 @@ class LMSAssignmentSubmission(Document):
 	def validate_url(self):
 		if self.type == "URL" and not validate_url(self.answer, True, ["http", "https"]):
 			frappe.throw(_("Please enter a valid URL."))
+
+	def validate_attachment_size(self):
+		if not self.assignment_attachment or not self.has_value_changed("assignment_attachment"):
+			return
+		file_size = frappe.db.get_value("File", {"file_url": self.assignment_attachment}, "file_size")
+		if file_size and file_size > MAX_ASSIGNMENT_FILE_SIZE_MB * 1024 * 1024:
+			frappe.throw(_("File size should not exceed {0} MB.").format(MAX_ASSIGNMENT_FILE_SIZE_MB))
 
 	def validate_status(self):
 		if not self.is_new():
