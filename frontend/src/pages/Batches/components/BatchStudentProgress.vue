@@ -119,6 +119,13 @@
 										>
 											{{ Math.ceil(row[column.key]) }}%
 										</div>
+										<Button
+											v-else-if="column.key == 'actions'"
+											size="sm"
+											@click.stop="openLessonProgress(row)"
+										>
+											{{ __('Mark complete') }}
+										</Button>
 										<div v-else>
 											{{ row[column.key] }}
 										</div>
@@ -131,11 +138,21 @@
 			</div>
 		</template>
 	</Dialog>
+	<MemberLessonProgressModal
+		v-if="lessonProgressCourse"
+		v-model="showLessonProgress"
+		:course="lessonProgressCourse.course"
+		:courseTitle="lessonProgressCourse.title"
+		:member="student"
+		:memberName="studentDetails.data?.full_name"
+		@updated="studentDetails.reload()"
+	/>
 </template>
 <script setup lang="ts">
 import {
 	Avatar,
 	Badge,
+	Button,
 	createResource,
 	Dialog,
 	ListView,
@@ -145,11 +162,16 @@ import {
 	ListRowItem,
 	LoadingIndicator,
 } from 'frappe-ui'
+import { computed, inject, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import ProgressBar from '@/components/ProgressBar.vue'
+import MemberLessonProgressModal from '@/components/Modals/MemberLessonProgressModal.vue'
 
 const show = defineModel()
 const router = useRouter()
+const user = inject<any>('$user')
+const showLessonProgress = ref(false)
+const lessonProgressCourse = ref<any>(null)
 const props = defineProps<{
 	student: string
 	batch: string
@@ -209,10 +231,29 @@ const assessmentColumns = [
 	{ key: 'status', label: 'Percentage/Status', align: 'right' },
 ]
 
-const courseColumns = [
-	{ key: 'title', label: 'Course', align: 'left', width: '70%' },
-	{ key: 'progress', label: 'Progress', align: 'right' },
-]
+const canManageProgress = computed(
+	() => user?.data?.is_moderator || user?.data?.is_evaluator
+)
+
+const courseColumns = computed(() => {
+	if (!canManageProgress.value) {
+		return [
+			{ key: 'title', label: 'Course', align: 'left', width: '70%' },
+			{ key: 'progress', label: 'Progress', align: 'right' },
+		]
+	}
+	// The action button sizes to its label; title and progress share the rest.
+	return [
+		{ key: 'title', label: 'Course', align: 'left', width: 3 },
+		{ key: 'progress', label: 'Progress', align: 'right', width: 2 },
+		{ key: 'actions', label: '', align: 'right', width: 'max-content' },
+	]
+})
+
+const openLessonProgress = (row: any) => {
+	lessonProgressCourse.value = row
+	showLessonProgress.value = true
+}
 
 const isAssignment = (value: any) => {
 	return isNaN(value)

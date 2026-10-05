@@ -2590,6 +2590,95 @@ def get_lesson_completion_stats(course: str):
 	return rows
 
 
+def can_manage_member_progress(course: str) -> bool:
+	return bool(has_moderator_role() or has_evaluator_role() or can_modify_course(course))
+
+
+def get_course_lessons_in_order(course: str) -> list:
+	LessonReference = frappe.qb.DocType("Lesson Reference")
+	ChapterReference = frappe.qb.DocType("Chapter Reference")
+	Lesson = frappe.qb.DocType("Course Lesson")
+
+	return (
+		frappe.qb.from_(LessonReference)
+		.join(ChapterReference)
+		.on(LessonReference.parent == ChapterReference.chapter)
+		.join(Lesson)
+		.on(LessonReference.lesson == Lesson.name)
+		.select(
+			Lesson.name.as_("lesson"),
+			Lesson.title,
+			ChapterReference.idx.as_("chapter_idx"),
+			LessonReference.idx,
+		)
+		.where(ChapterReference.parent == course)
+		.orderby(ChapterReference.idx, LessonReference.idx)
+		.run(as_dict=True)
+	)
+
+
+@frappe.whitelist()
+def get_member_lesson_progress(course: str, member: str):
+	if not can_manage_member_progress(course):
+		frappe.throw(_("You do not have permission to view this student's progress."), frappe.PermissionError)
+
+	completed = set(
+		frappe.get_all(
+			"LMS Course Progress",
+			{"course": course, "member": member, "status": "Complete"},
+			pluck="lesson",
+		)
+	)
+	lessons = get_course_lessons_in_order(course)
+	for lesson in lessons:
+		lesson.status = "Complete" if lesson.lesson in completed else "Pending"
+	return lessons
+
+
+@frappe.whitelist()
+def set_member_lesson_progress(course: str, member: str, lessons: list, complete: bool = True):
+	"""Mark lessons complete (or clear their progress) on behalf of a student,
+	e.g. a late joiner who already attended those lectures in the live classroom."""
+	if not can_manage_member_progress(course):
+		frappe.throw(_("You do not have permission to update this student's progress."), frappe.PermissionError)
+
+	if isinstance(lessons, str):
+		lessons = json.loads(lessons)
+	complete = cint(complete)
+
+	if not frappe.db.exists("LMS Enrollment", {"course": course, "member": member}):
+		frappe.throw(_("Student is not enrolled in this course."))
+
+	course_lessons = {row.lesson for row in get_course_lessons_in_order(course)}
+	invalid = [lesson for lesson in lessons if lesson not in course_lessons]
+	if invalid:
+		frappe.throw(_("Lessons {0} do not belong to this course.").format(", ".join(invalid)))
+
+	for lesson in lessons:
+		existing = frappe.db.get_value(
+			"LMS Course Progress", {"lesson": lesson, "member": member}, ["name", "status"], as_dict=True
+		)
+		# Doc methods (not db.set_value) so on_update/after_delete recalculate course progress.
+		if complete:
+			if not existing:
+				frappe.get_doc(
+					{
+						"doctype": "LMS Course Progress",
+						"lesson": lesson,
+						"member": member,
+						"status": "Complete",
+					}
+				).insert(ignore_permissions=True)
+			elif existing.status != "Complete":
+				doc = frappe.get_doc("LMS Course Progress", existing.name)
+				doc.status = "Complete"
+				doc.save(ignore_permissions=True)
+		elif existing:
+			frappe.delete_doc("LMS Course Progress", existing.name, ignore_permissions=True)
+
+	return frappe.db.get_value("LMS Enrollment", {"course": course, "member": member}, "progress")
+
+
 @frappe.whitelist()
 def get_course_assessment_progress(course: str, member: str):
 	if not can_modify_course(course):
