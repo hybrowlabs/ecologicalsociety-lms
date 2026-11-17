@@ -1883,6 +1883,9 @@ def calculate_assessment_progress(assessments: list, details: dict):
 			assessment.assessment_name, assessment.assessment_type, details.email
 		)
 		assessment_info.title = title
+		assessment_info.assessment = assessment.assessment_name
+		assessment_info.type = assessment.assessment_type
+		add_assessment_attempt_details(assessment_info, details.email)
 		details.assessments.append(assessment_info)
 
 		if assessment_info.result == "Pass":
@@ -1891,6 +1894,22 @@ def calculate_assessment_progress(assessments: list, details: dict):
 	details.average_assessments_progress = (
 		flt((assessments_completed / len(assessments) * 100), 2) if len(assessments) else 0
 	)
+
+
+def add_assessment_attempt_details(info: dict, member: str):
+	"""Upload dates for assignments, per-question attempts for quizzes."""
+	if info.type == "LMS Assignment" and info.get("submission"):
+		dates = frappe.db.get_value(
+			"LMS Assignment Submission", info.submission, ["creation", "last_uploaded_on"], as_dict=True
+		)
+		info.submitted_on = dates.creation
+		info.last_uploaded_on = dates.last_uploaded_on
+	elif info.type == "LMS Quiz":
+		from lms.lms.api import get_quiz_question_attempts
+
+		summary = get_quiz_question_attempts([member], [info.assessment])[(member, info.assessment)]
+		info.total_attempts = summary.total_attempts
+		info.questions = summary.questions
 
 
 def has_submitted_assessment(assessment: str, assessment_type: str, member: str = None):

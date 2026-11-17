@@ -2,7 +2,7 @@
 	<Dialog
 		v-model="show"
 		:options="{
-			size: 'xl',
+			size: '3xl',
 			title: studentDetails.data?.full_name || __('Student Details'),
 		}"
 	>
@@ -65,7 +65,14 @@
 										class="w-full"
 									>
 										<div
-											v-if="column.key == 'status' && isAssignment(row.status)"
+											v-if="column.key == 'details'"
+											class="text-xs text-ink-gray-5"
+											data-testid="assessment-details"
+										>
+											{{ assessmentDetail(row) }}
+										</div>
+										<div
+											v-else-if="column.key == 'status' && isAssignment(row.status)"
 										>
 											<Badge :theme="getStatusTheme(row[column.key])">
 												{{ row[column.key] }}
@@ -134,6 +141,59 @@
 							</ListRow>
 						</ListRows>
 					</ListView>
+
+					<!-- Quiz attempts per question and assignment upload dates -->
+					<div
+						v-if="detailGroups.length"
+						class="space-y-2"
+						data-testid="assessment-detail-groups"
+					>
+						<div class="text-base font-medium text-ink-gray-9">
+							{{ __('Quiz & assignment details') }}
+						</div>
+						<div
+							v-for="group in detailGroups"
+							:key="group.key"
+							class="border border-outline-gray-modals rounded-lg"
+						>
+							<button
+								type="button"
+								class="flex items-center justify-between w-full px-3 py-2 text-sm font-medium text-ink-gray-8 hover:bg-surface-gray-1 rounded-lg"
+								:aria-expanded="Boolean(openGroups[group.key])"
+								data-testid="assessment-group-toggle"
+								@click="toggleGroup(group)"
+							>
+								<span>{{ group.title }}</span>
+								<ChevronDown
+									class="size-4 transition-transform"
+									:class="{ 'rotate-180': openGroups[group.key] }"
+								/>
+							</button>
+							<div v-if="openGroups[group.key]" class="px-3 pb-3">
+								<div
+									v-if="group.course && courseAssessments[group.course]?.loading"
+									class="flex justify-center py-4"
+								>
+									<LoadingIndicator class="size-4" />
+								</div>
+								<template v-else>
+									<StudentAssessmentPanels
+										:quizzes="groupQuizzes(group)"
+										:assignments="groupAssignments(group)"
+									/>
+									<div
+										v-if="
+											!groupQuizzes(group).length &&
+											!groupAssignments(group).length
+										"
+										class="text-sm text-ink-gray-5 py-2"
+									>
+										{{ __('No quizzes or assignments.') }}
+									</div>
+								</template>
+							</div>
+						</div>
+					</div>
 				</div>
 			</div>
 		</template>
@@ -162,7 +222,10 @@ import {
 	ListRowItem,
 	LoadingIndicator,
 } from 'frappe-ui'
-import { computed, inject, ref } from 'vue'
+import { computed, inject, reactive, ref } from 'vue'
+import type dayjsType from 'dayjs'
+import { ChevronDown } from 'lucide-vue-next'
+import StudentAssessmentPanels from '@/components/StudentAssessmentPanels.vue'
 import { useRouter } from 'vue-router'
 import ProgressBar from '@/components/ProgressBar.vue'
 import MemberLessonProgressModal from '@/components/Modals/MemberLessonProgressModal.vue'
@@ -227,9 +290,91 @@ const redirectToCourse = (row: any) => {
 }
 
 const assessmentColumns = [
-	{ key: 'title', label: 'Assessment', align: 'left', width: '60%' },
+	{ key: 'title', label: 'Assessment', align: 'left', width: '45%' },
+	{ key: 'details', label: 'Attempts / Submitted', align: 'left' },
 	{ key: 'status', label: 'Percentage/Status', align: 'right' },
 ]
+
+const dayjs = inject<typeof dayjsType>('$dayjs')!
+
+const assessmentDetail = (row: any) => {
+	if (row.type === 'LMS Quiz') {
+		const n = row.total_attempts || 0
+		return n === 1 ? __('1 attempt') : __('{0} attempts').format(String(n))
+	}
+	if (row.type === 'LMS Assignment') {
+		return row.submitted_on
+			? __('Submitted {0}').format(dayjs(row.submitted_on).format('DD MMM YYYY'))
+			: '-'
+	}
+	return ''
+}
+
+// One expandable group per batch course (loaded on first open), plus one for
+// quizzes/assignments attached to the batch itself.
+type DetailGroup = { key: string; title: string; course?: string }
+
+const batchAssessments = computed(() =>
+	(studentDetails.data?.assessments || []).filter((a: any) =>
+		['LMS Quiz', 'LMS Assignment'].includes(a.type)
+	)
+)
+
+const detailGroups = computed<DetailGroup[]>(() => {
+	const groups: DetailGroup[] = (studentDetails.data?.courses || []).map(
+		(c: any) => ({ key: `course:${c.course}`, title: c.title, course: c.course })
+	)
+	if (batchAssessments.value.length) {
+		groups.push({ key: 'batch', title: __('Batch assessments') })
+	}
+	return groups
+})
+
+const openGroups = reactive<Record<string, boolean>>({})
+const courseAssessments = reactive<Record<string, any>>({})
+
+const toggleGroup = (group: DetailGroup) => {
+	openGroups[group.key] = !openGroups[group.key]
+	if (openGroups[group.key] && group.course && !courseAssessments[group.course]) {
+		courseAssessments[group.course] = createResource({
+			url: 'lms.lms.api.get_course_assessment_progress',
+			params: { course: group.course, member: props.student, batch: props.batch },
+			auto: true,
+		})
+	}
+}
+
+const bySequence = (rows: any[] = []) =>
+	[...rows].sort(
+		(a, b) => (a.chapter_idx || 0) - (b.chapter_idx || 0) || (a.idx || 0) - (b.idx || 0)
+	)
+
+const groupQuizzes = (group: DetailGroup) => {
+	if (group.course) return bySequence(courseAssessments[group.course]?.data?.quizzes)
+	return batchAssessments.value
+		.filter((a: any) => a.type === 'LMS Quiz')
+		.map((a: any) => ({
+			quiz: a.assessment,
+			quiz_title: a.title,
+			total_attempts: a.total_attempts,
+			questions: a.questions,
+			score: '-',
+			percentage: a.status,
+		}))
+}
+
+const groupAssignments = (group: DetailGroup) => {
+	if (group.course) return bySequence(courseAssessments[group.course]?.data?.assignments)
+	return batchAssessments.value
+		.filter((a: any) => a.type === 'LMS Assignment')
+		.map((a: any) => ({
+			assignment: a.assessment,
+			assignment_title: a.title,
+			status: a.status,
+			submitted_on: a.submitted_on,
+			last_uploaded_on: a.last_uploaded_on,
+		}))
+}
 
 const canManageProgress = computed(
 	() => user?.data?.is_moderator || user?.data?.is_evaluator

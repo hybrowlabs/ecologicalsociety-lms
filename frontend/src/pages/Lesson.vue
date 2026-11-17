@@ -286,6 +286,9 @@
 							<div v-show="notesPanelOpen" class="px-4 pb-4">
 								<Notes
 									:lesson="lesson.data?.name"
+									:lessonTitle="lesson.data?.title"
+									:courseName="courseName"
+									:courseTitle="lesson.data?.course_title"
 									v-model:notes="notes"
 									@updateNotes="updateNotes"
 								/>
@@ -761,7 +764,7 @@ const notes = createListResource({
 		lesson: lesson.data?.name,
 		member: user.data?.name,
 	},
-	fields: ['name', 'color', 'highlighted_text', 'note'],
+	fields: ['name', 'lesson', 'color', 'highlighted_text', 'note'],
 	// NOTE: intentionally no `cache` key. `lesson`/`user` are undefined at setup,
 	// so a cache key here resolves to a constant (`["notes",null,null]`) and
 	// frappe-ui persists the list to IndexedDB under it — which then re-hydrates

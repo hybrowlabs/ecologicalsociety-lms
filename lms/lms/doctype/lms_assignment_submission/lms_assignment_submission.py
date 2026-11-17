@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.desk.doctype.notification_log.notification_log import make_notification_logs
 from frappe.model.document import Document
-from frappe.utils import validate_url
+from frappe.utils import now_datetime, validate_url
 
 from lms.lms.utils import get_lms_route
 
@@ -20,6 +20,7 @@ class LMSAssignmentSubmission(Document):
 		self.validate_url()
 		self.validate_attachment_size()
 		self.validate_status()
+		self.set_last_uploaded_on()
 
 	def enforce_member_ownership(self):
 		if PRIVILEGED_ROLES & set(frappe.get_roles()):
@@ -30,6 +31,20 @@ class LMSAssignmentSubmission(Document):
 				frappe.PermissionError,
 			)
 		self.member = frappe.session.user
+
+	def set_last_uploaded_on(self):
+		"""Record when the student last uploaded/changed their answer.
+
+		Only the student's own saves count: graders save the whole document
+		(including the answer field) when they grade, which must not look like
+		a re-upload."""
+		if self.is_new():
+			self.last_uploaded_on = now_datetime()
+			return
+		if frappe.session.user != self.member:
+			return
+		if self.has_value_changed("assignment_attachment") or self.has_value_changed("answer"):
+			self.last_uploaded_on = now_datetime()
 
 	def on_update(self):
 		self.validate_private_attachments()

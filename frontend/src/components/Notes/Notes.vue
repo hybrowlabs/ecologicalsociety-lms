@@ -16,6 +16,13 @@
 				:label="__('Save')"
 				@click="saveNow"
 			/>
+			<Dropdown :options="downloadOptions" placement="right">
+				<Button variant="subtle" :label="__('Download')">
+					<template #prefix>
+						<Download class="size-4 stroke-1.5" />
+					</template>
+				</Button>
+			</Dropdown>
 		</div>
 	</div>
 	<!-- #27: richer editing - fixed formatting toolbar, bubble menu on select,
@@ -34,21 +41,25 @@
 	/>
 </template>
 <script setup lang="ts">
-import { TextEditor, Button } from 'frappe-ui'
-import { useDebounceFn } from '@vueuse/core'
-import { inject, ref, onMounted, watch } from 'vue'
+import { TextEditor, Button, Dropdown, toast } from 'frappe-ui'
+import { Download } from 'lucide-vue-next'
+import { inject, ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import type { Note, Notes } from '@/components/Notes/types'
 import { blockQuotesClick } from '@/utils/'
 
+const SAVE_DELAY_MS = 2000
+
 const note = ref<string | null>(null)
-const currentNoteName = ref<string | null>(null)
 const saveStatus = ref<string>('')
 // Guards so a note-list reload (highlight insert, post-save refetch, navigation)
-// can't overwrite text the user is still typing, and so fast typing can't fire
-// two concurrent creates and orphan a duplicate note.
+// can't overwrite text the user is still typing.
 const isDirty = ref<boolean>(false)
-const saving = ref<boolean>(false)
-const pendingSave = ref<boolean>(false)
+// Server-side note name per lesson. Keyed by lesson (not a single ref) so a save
+// that is still in flight for the previous lesson after navigation resolves
+// against the right note instead of the new lesson's.
+const noteNames = ref<Record<string, string>>({})
+// Last text persisted per lesson, so flushes don't re-send unchanged content.
+const lastSaved: Record<string, string | null> = {}
 // #27: formatting toolbar shown above the notes editor.
 const fixedMenuButtons = [
 	'Paragraph',
@@ -70,10 +81,23 @@ const emit = defineEmits<{
 
 const props = defineProps<{
 	lesson: string
+	lessonTitle?: string
+	courseName?: string
+	courseTitle?: string
 }>()
+
+const currentNoteName = computed(() => noteNames.value[props.lesson] || null)
 
 onMounted(() => {
 	updateCurrentNote()
+	window.addEventListener('beforeunload', onBeforeUnload)
+})
+
+onBeforeUnmount(() => {
+	window.removeEventListener('beforeunload', onBeforeUnload)
+	// Leaving the lesson page within the autosave delay used to drop the last
+	// edits. Persist them now.
+	flush(props.lesson)
 })
 
 watch(
@@ -84,13 +108,14 @@ watch(
 	}
 )
 
-// Switching lessons reuses this component instance; reset editor state so the
-// new lesson's note loads cleanly and stale dirty/name state can't leak across.
+// Switching lessons reuses this component instance. Save whatever was typed on
+// the previous lesson first (this used to be silently discarded if the switch
+// happened inside the autosave delay), then reset the editor for the new one.
 watch(
 	() => props.lesson,
-	() => {
+	(_newLesson, oldLesson) => {
+		if (oldLesson) flush(oldLesson)
 		isDirty.value = false
-		currentNoteName.value = null
 		note.value = null
 		saveStatus.value = ''
 	}
@@ -106,6 +131,11 @@ const isBlank = (html?: string | null) =>
 		.replace(/&nbsp;/g, ' ')
 		.trim() === ''
 
+const lessonRows = () =>
+	(notes.value?.data || []).filter(
+		(row: Note) => !row.lesson || row.lesson === props.lesson
+	)
+
 const updateCurrentNote = () => {
 	// Don't clobber unsaved edits with a server refetch mid-typing — but an
 	// *empty* editor must never win over a note that came back from the server.
@@ -113,20 +143,20 @@ const updateCurrentNote = () => {
 	// lesson renders), so anything that marks the component dirty in that window
 	// used to suppress the saved note for the rest of the session.
 	if (isDirty.value && !isBlank(note.value)) return
-	const currentNote = notes.value?.data?.filter((row: Note) => {
+	const currentNote = lessonRows().filter((row: Note) => {
 		return !row.highlighted_text && row.note !== ''
 	})
 	if (!currentNote?.length) {
 		note.value = null
-		currentNoteName.value = null
 		return
 	}
 	// A lesson can carry more than one plain note (older builds could autosave a
 	// blank one). Prefer a note that actually has text so an empty stray can't
 	// mask what the learner wrote.
 	const current = currentNote.find((row: Note) => !isBlank(row.note)) ?? currentNote[0]
-	currentNoteName.value = current.name
+	noteNames.value[props.lesson] = current.name
 	note.value = current.note || null
+	lastSaved[props.lesson] = note.value
 	isDirty.value = false
 	saveStatus.value = ''
 }
@@ -146,105 +176,184 @@ const updateNoteText = (val: string) => {
 	note.value = val
 	isDirty.value = true
 	saveStatus.value = __('Saving…')
-	debouncedSave()
+	scheduleSave()
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+const cancelScheduledSave = () => {
+	if (saveTimer) clearTimeout(saveTimer)
+	saveTimer = null
+}
+
+const scheduleSave = () => {
+	cancelScheduledSave()
+	const lesson = props.lesson
+	saveTimer = setTimeout(() => {
+		saveTimer = null
+		flush(lesson)
+	}, SAVE_DELAY_MS)
 }
 
 const saveNow = () => {
 	if (isBlank(note.value) && !currentNoteName.value) return
 	saveStatus.value = __('Saving…')
-	saveNotes()
+	flush(props.lesson, true)
 }
 
-const debouncedSave = useDebounceFn(() => {
-	saveNotes()
-}, 2000)
+// Snapshot the editor for `lesson` and queue it. Must be called while
+// `note.value` still holds that lesson's text (i.e. before the lesson-switch
+// reset), which every caller above guarantees.
+const flush = (lesson: string, force = false) => {
+	cancelScheduledSave()
+	if (!lesson) return
+	if (!force && !isDirty.value) return
+	const text = note.value
+	if (!force && text === lastSaved[lesson]) return
+	enqueueSave(lesson, text)
+}
 
-// Serialize saves: while one create/update is in flight, queue a single
-// follow-up instead of firing a second request. This prevents two concurrent
-// creates (which would orphan a duplicate note) and guarantees the latest text
-// is persisted once the in-flight request resolves.
-const saveNotes = () => {
-	if (saving.value) {
-		pendingSave.value = true
+// Saves run strictly one after another. That prevents two concurrent creates
+// (which would orphan a duplicate note) and lets a create's returned name be
+// used by the next save for the same lesson.
+let queue: Promise<void> = Promise.resolve()
+
+const enqueueSave = (lesson: string, text: string | null) => {
+	queue = queue.then(() => persist(lesson, text)).catch(() => {})
+}
+
+const submit = (resource: any, values: Record<string, any>) =>
+	new Promise<Note>((resolve, reject) => {
+		resource.submit(values, { onSuccess: resolve, onError: reject })
+	})
+
+const persist = async (lesson: string, text: string | null) => {
+	const name = noteNames.value[lesson]
+	// Never bring a blank note into existence.
+	if (!name && isBlank(text)) {
+		if (lesson === props.lesson) saveStatus.value = ''
 		return
 	}
-	saving.value = true
-	const finish = () => {
-		saving.value = false
-		if (pendingSave.value) {
-			pendingSave.value = false
-			saveNotes()
+	try {
+		if (name) {
+			await submit(notes.value?.setValue, {
+				name,
+				lesson,
+				member: user?.data?.name,
+				note: text,
+			})
+		} else {
+			const data = await submit(notes.value?.insert, {
+				lesson,
+				member: user?.data?.name,
+				note: text,
+				color: 'Yellow',
+				name: '',
+			})
+			if (data?.name) noteNames.value[lesson] = data.name
 		}
-	}
-	if (currentNoteName.value) {
-		updateNote(finish)
-	} else {
-		createNote(finish)
+		lastSaved[lesson] = text
+		if (lesson === props.lesson) {
+			// Only clear dirty if the editor hasn't changed since we sent this
+			// value; otherwise a refetch would revert the newer keystrokes.
+			if (note.value === text) isDirty.value = false
+			saveStatus.value = __('Saved')
+		}
+		emit('updateNotes')
+	} catch (err) {
+		if (lesson === props.lesson) saveStatus.value = __('Not saved')
+		console.error('Error saving note:', err)
+		throw err
 	}
 }
 
-const createNote = (done?: () => void) => {
-	// Never bring a blank note into existence; it would outrank nothing and
-	// only add another row for updateCurrentNote() to pick between.
-	if (isBlank(note.value)) {
-		saveStatus.value = ''
-		done?.()
+// Best effort for tab close / reload: kick off the save and ask the browser to
+// confirm leaving while it is unsaved.
+const onBeforeUnload = (e: BeforeUnloadEvent) => {
+	if (!isDirty.value || note.value === lastSaved[props.lesson]) return
+	flush(props.lesson)
+	e.preventDefault()
+	e.returnValue = ''
+}
+
+/* ---------- Download ---------- */
+
+const escapeHtml = (s: string) =>
+	s
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+
+const slugify = (s: string) =>
+	s
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '') || 'lesson'
+
+const downloadLessonNotes = () => {
+	const title = props.lessonTitle || props.lesson
+	const highlights = lessonRows().filter((row: Note) => row.highlighted_text)
+	// Use the editor's live text so unsaved edits are included too.
+	const body = !isBlank(note.value) ? note.value : ''
+	if (!body && !highlights.length) {
+		toast.warning(__('There are no notes in this lesson to download yet.'))
 		return
 	}
-	const saved = note.value
-	notes.value?.insert.submit(
+	const parts = [
+		'<!doctype html><html><head><meta charset="utf-8">',
+		`<title>${escapeHtml(title)} - ${escapeHtml(__('My Notes'))}</title>`,
+		'<style>body{font-family:system-ui,sans-serif;max-width:760px;margin:32px auto;padding:0 16px;color:#222;line-height:1.5}',
+		'blockquote{border-left:3px solid #f5c542;margin:8px 0;padding:2px 12px;color:#444}',
+		'.muted{color:#888;font-size:13px}</style></head><body>',
+		`<h1>${escapeHtml(title)}</h1>`,
+	]
+	if (props.courseTitle) {
+		parts.push(`<div class="muted">${escapeHtml(props.courseTitle)}</div>`)
+	}
+	if (body) parts.push(`<h2>${escapeHtml(__('Notes'))}</h2><div>${body}</div>`)
+	if (highlights.length) {
+		parts.push(`<h2>${escapeHtml(__('Highlights'))}</h2>`)
+		highlights.forEach((h: Note) => {
+			parts.push(`<blockquote>${escapeHtml(h.highlighted_text || '')}</blockquote>`)
+			if (!isBlank(h.note)) parts.push(`<div>${h.note}</div>`)
+		})
+	}
+	parts.push('</body></html>')
+
+	const blob = new Blob([parts.join('')], { type: 'text/html' })
+	const url = URL.createObjectURL(blob)
+	const a = document.createElement('a')
+	a.href = url
+	a.download = `${slugify(title)}-notes.html`
+	document.body.appendChild(a)
+	a.click()
+	a.remove()
+	URL.revokeObjectURL(url)
+}
+
+const downloadCourseNotes = async () => {
+	// Make sure what's on screen is included in the PDF.
+	flush(props.lesson)
+	await queue
+	window.location.href =
+		'/api/method/lms.lms.api.download_my_course_notes?course=' +
+		encodeURIComponent(props.courseName || '')
+}
+
+const downloadOptions = computed(() => {
+	const options = [
 		{
-			lesson: props.lesson,
-			member: user?.data?.name,
-			note: note.value,
-			color: 'Yellow',
-			name: '',
+			label: __('This lesson (HTML)'),
+			onClick: downloadLessonNotes,
 		},
-		{
-			onSuccess(data: Note) {
-				currentNoteName.value = data.name || null
-				// Only clear dirty if the editor hasn't changed since we sent this
-				// value; otherwise a refetch would revert the newer keystrokes.
-				if (note.value === saved) isDirty.value = false
-				saveStatus.value = __('Saved')
-				emit('updateNotes')
-				done?.()
-			},
-			onError(err: any) {
-				saveStatus.value = __('Not saved')
-				console.error('Error creating note:', err)
-				done?.()
-			},
-		}
-	)
-}
-
-const updateNote = (done?: () => void) => {
-	if (!currentNoteName.value) {
-		done?.()
-		return
+	]
+	if (props.courseName) {
+		options.push({
+			label: __('All notes in this course (PDF)'),
+			onClick: downloadCourseNotes,
+		})
 	}
-	const saved = note.value
-	notes.value?.setValue.submit(
-		{
-			name: currentNoteName.value,
-			lesson: props.lesson,
-			member: user?.data?.name,
-			note: note.value,
-		},
-		{
-			onSuccess(_data: Note) {
-				if (note.value === saved) isDirty.value = false
-				saveStatus.value = __('Saved')
-				emit('updateNotes')
-				done?.()
-			},
-			onError(err: any) {
-				saveStatus.value = __('Not saved')
-				console.error('Error updating note:', err)
-				done?.()
-			},
-		}
-	)
-}
+	return options
+})
 </script>

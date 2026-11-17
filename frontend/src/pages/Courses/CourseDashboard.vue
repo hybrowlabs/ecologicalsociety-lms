@@ -45,6 +45,13 @@
 						</Button>
 					</div>
 				</div>
+				<ProgressRangeFilter
+					v-model:band="progressBand"
+					v-model:min="minProgress"
+					v-model:max="maxProgress"
+					v-model:sort="studentSort"
+					:total="studentCount.data"
+				/>
 				<div
 					v-if="progressList.loading || progressList.data?.length"
 					class="max-h-[63vh] overflow-y-auto"
@@ -105,7 +112,7 @@
 										</div>
 										<div
 											v-else-if="column.key == 'progress'"
-											class="text-xs !mx-0 w-5"
+											class="text-xs !mx-0 w-9 shrink-0 text-right"
 										>
 											{{ Math.ceil(row[column.key]) }}%
 										</div>
@@ -141,6 +148,13 @@
 						</Button>
 					</div>
 				</div>
+				<div
+					v-else-if="hasActiveFilters"
+					class="text-center text-sm text-ink-gray-5 py-8"
+					data-testid="no-students-match"
+				>
+					{{ __('No students match these filters.') }}
+				</div>
 			</div>
 			<div class="space-y-5">
 				<div
@@ -155,8 +169,15 @@
 					>
 						<div class="flex flex-col space-y-4 flex-1 text-sm">
 							<div
-								class="flex items-center text-ink-gray-7"
-								v-for="row in chartDetails.data?.progress_distribution"
+								class="flex items-center text-ink-gray-7 cursor-pointer rounded px-1 -mx-1 hover:bg-surface-gray-2"
+								:class="{
+									'bg-surface-gray-3 font-medium':
+										progressBand === BAND_ORDER[index],
+								}"
+								v-for="(row, index) in chartDetails.data?.progress_distribution"
+								:key="row.name"
+								:data-testid="'band-' + BAND_ORDER[index]"
+								@click="toggleBand(BAND_ORDER[index])"
 							>
 								<div
 									class="size-2 rounded"
@@ -188,7 +209,10 @@
 							</div>
 						</div>
 						<ECharts
-							class="w-40 h-20"
+							class="w-40 h-20 cursor-pointer"
+							:events="{
+								click: (params: any) => toggleBand(BAND_ORDER[params.dataIndex]),
+							}"
 							:options="{
 								color: progressColors,
 								series: [
@@ -310,6 +334,15 @@ import CourseEnrollmentModal from '@/pages/Courses/CourseEnrollmentModal.vue'
 import NumberChartGraph from '@/components/NumberChartGraph.vue'
 import ProgressBar from '@/components/ProgressBar.vue'
 import StudentCourseProgress from '@/pages/Courses/StudentCourseProgress.vue'
+import ProgressRangeFilter from '@/components/ProgressRangeFilter.vue'
+import { useDebounceFn } from '@vueuse/core'
+import {
+	BAND_ORDER,
+	exportParams,
+	progressFilterConditions,
+	sortToOrderBy,
+} from '@/utils/progressRange'
+import type { ProgressBand, StudentSort } from '@/utils/progressRange'
 
 import type { CourseDetails, Resource } from '@/types/api'
 
@@ -326,9 +359,32 @@ const currentStudent = ref<Record<string, unknown> | null>(null)
 const theme = ref<'darkMode' | 'lightMode'>(
 	localStorage.getItem('theme') == 'dark' ? 'darkMode' : 'lightMode'
 )
-type Filters = {
-	course: string | undefined
-	member_name?: string[]
+const progressBand = ref<ProgressBand>('')
+const minProgress = ref<number | string | null>(null)
+const maxProgress = ref<number | string | null>(null)
+const studentSort = ref<StudentSort>('creation_desc')
+
+const hasActiveFilters = computed(() => Boolean(searchFilter.value || progressBand.value))
+
+// Filters in list form so `progress` can carry both a lower and upper bound.
+const studentFilters = () => {
+	const filters: any[] = [['course', '=', props.course.data?.name]]
+	if (searchFilter.value) {
+		filters.push(['member_name', 'like', `%${searchFilter.value}%`])
+	}
+	filters.push(
+		...progressFilterConditions(
+			progressBand.value,
+			minProgress.value,
+			maxProgress.value
+		)
+	)
+	return filters
+}
+
+const toggleBand = (band: ProgressBand | undefined) => {
+	if (!band) return
+	progressBand.value = progressBand.value === band ? '' : band
 }
 
 const chartDetails = createResource({
@@ -343,9 +399,8 @@ const chartDetails = createResource({
 
 const progressList = createListResource({
 	doctype: 'LMS Enrollment',
-	filters: {
-		course: props.course.data?.name,
-	},
+	filters: studentFilters(),
+	orderBy: sortToOrderBy(studentSort.value),
 	fields: [
 		'name',
 		'member',
@@ -358,6 +413,14 @@ const progressList = createListResource({
 	pageLength: 100,
 	auto: true,
 	cache: ['courseProgress', props.course.data?.name],
+})
+
+const studentCount = createResource({
+	url: 'frappe.client.get_count',
+	makeParams() {
+		return { doctype: 'LMS Enrollment', filters: studentFilters() }
+	},
+	auto: true,
 })
 
 const lessonProgress = createResource({
@@ -382,20 +445,19 @@ const updateLessonProgress = (value: string) => {
 	}
 }
 
-watch([searchFilter], () => {
-	let filters: Filters = {
-		course: props.course.data?.name,
-	}
-
-	if (searchFilter.value) {
-		filters.member_name = ['like', `%${searchFilter.value}%`]
-	}
-
+const applyStudentFilters = () => {
 	progressList.update({
-		filters: filters,
+		filters: studentFilters(),
+		orderBy: sortToOrderBy(studentSort.value),
 	})
 	progressList.reload()
-})
+	studentCount.reload()
+}
+// Typing in search / min / max shouldn't fire a request per keystroke.
+const applyStudentFiltersDebounced = useDebounceFn(applyStudentFilters, 300)
+
+watch([searchFilter, minProgress, maxProgress], applyStudentFiltersDebounced)
+watch([progressBand, studentSort], applyStudentFilters)
 
 watch(
 	() => progressList.data,
@@ -404,6 +466,7 @@ watch(
 			props.course.reload()
 			chartDetails.reload()
 			lessonProgress.reload()
+			studentCount.reload()
 		}
 	}
 )
@@ -415,7 +478,15 @@ const downloadProgress = async () => {
 	try {
 		await downloadFile(
 			'/api/method/lms.lms.api.export_course_student_progress?course=' +
-				encodeURIComponent(props.course.data?.name || ''),
+				encodeURIComponent(props.course.data?.name || '') +
+				'&' +
+				exportParams({
+					search: searchFilter.value,
+					band: progressBand.value,
+					min: minProgress.value,
+					max: maxProgress.value,
+					sort: studentSort.value,
+				}),
 			'course_progress.xlsx'
 		)
 	} catch (err) {

@@ -50,13 +50,20 @@
 						</Button>
 					</div>
 				</div>
+				<ProgressRangeFilter
+					v-model:band="progressBand"
+					v-model:min="minProgress"
+					v-model:max="maxProgress"
+					v-model:sort="studentSort"
+					:total="studentTotal"
+				/>
 				<div
-					v-if="students.loading || students.data?.length"
+					v-if="batchStudents.loading || studentRows.length"
 					class="max-h-[63vh] overflow-y-auto"
 				>
 					<ListView
 						:columns="studentColumns"
-						:rows="students.data"
+						:rows="studentRows"
 						rowKey="name"
 						:options="{
 							selectable: false,
@@ -77,7 +84,7 @@
 							>
 							</ListHeaderItem>
 						</ListHeader>
-						<ListRows v-for="row in students.data" class="max-h-[500px]">
+						<ListRows v-for="row in studentRows" class="max-h-[500px]">
 							<ListRow :row="row">
 								<template #default="{ column, item }">
 									<ListRowItem
@@ -94,18 +101,18 @@
 													size="sm"
 												/>
 											</div>
-											<!-- <ProgressBar
+											<ProgressBar
 												v-else-if="column.key == 'progress'"
 												:progress="Math.ceil(row[column.key])"
 												class="!mx-0 !me-4"
-											/> -->
+											/>
 										</template>
 										<div v-if="column.key == 'creation'">
 											{{ dayjs(row[column.key]).format('DD MMM YYYY') }}
 										</div>
 										<div
 											v-else-if="column.key == 'progress'"
-											class="text-xs !mx-0 w-5"
+											class="text-xs !mx-0 w-9 shrink-0 text-right"
 										>
 											{{ Math.ceil(row[column.key]) }}%
 										</div>
@@ -132,13 +139,20 @@
 						</ListRows>
 					</ListView>
 					<div
-						v-if="students.data && students.hasNextPage"
+						v-if="studentRows.length < (studentTotal || 0)"
 						class="flex justify-center my-3"
 					>
-						<Button @click="students.next()">
+						<Button :loading="batchStudents.loading" @click="loadStudents(false)">
 							{{ __('Load More') }}
 						</Button>
 					</div>
+				</div>
+				<div
+					v-else-if="searchFilter || progressBand"
+					class="text-center text-sm text-ink-gray-5 py-8"
+					data-testid="no-students-match"
+				>
+					{{ __('No students match these filters.') }}
 				</div>
 			</div>
 
@@ -242,6 +256,11 @@ import BatchFeedback from '@/pages/Batches/components/BatchFeedback.vue'
 import BatchStudentProgress from '@/pages/Batches/components/BatchStudentProgress.vue'
 import NumberChartGraph from '@/components/NumberChartGraph.vue'
 import StudentModal from '@/components/Modals/StudentModal.vue'
+import ProgressBar from '@/components/ProgressBar.vue'
+import ProgressRangeFilter from '@/components/ProgressRangeFilter.vue'
+import { useDebounceFn } from '@vueuse/core'
+import { exportParams } from '@/utils/progressRange'
+import type { ProgressBand, StudentSort } from '@/utils/progressRange'
 
 const dayjs = inject<typeof dayjsType>('$dayjs')!
 const searchFilter = ref<string | null>(null)
@@ -270,39 +289,78 @@ const certificationCount = createResource({
 	auto: true,
 })
 
+// Kept for StudentModal, which enrolls through `students.insert`; the insert
+// refetches this resource, and the watcher below then refreshes the list.
 const students = createListResource({
 	doctype: 'LMS Batch Enrollment',
 	filters: {
 		batch: props.batch?.data?.name,
 	},
-	fields: [
-		'name',
-		'member',
-		'member_name',
-		'member_username',
-		'member_image',
-		'creation',
-	],
-	orderBy: 'creation desc',
-	auto: true,
+	fields: ['name'],
+	pageLength: 1,
 })
+
+const PAGE_LENGTH = 50
+const progressBand = ref<ProgressBand>('')
+const minProgress = ref<number | string | null>(null)
+const maxProgress = ref<number | string | null>(null)
+const studentSort = ref<StudentSort>('creation_desc')
+const studentRows = ref<any[]>([])
+const studentTotal = ref<number | null>(null)
+
+const filterParams = () => ({
+	batch: props.batch?.data?.name,
+	search: searchFilter.value || null,
+	progress_band: progressBand.value || null,
+	min_progress: progressBand.value === 'custom' ? minProgress.value : null,
+	max_progress: progressBand.value === 'custom' ? maxProgress.value : null,
+	sort: studentSort.value,
+})
+
+// Batch progress = average course progress across the batch's courses,
+// computed server-side so filtering, sorting and paging stay consistent.
+const batchStudents = createResource({
+	url: 'lms.lms.api.get_batch_students_progress',
+})
+
+let requestId = 0
+const loadStudents = (reset = true) => {
+	const id = ++requestId
+	const start = reset ? 0 : studentRows.value.length
+	return batchStudents
+		.submit({ ...filterParams(), start, page_length: PAGE_LENGTH })
+		.then((data: { students: any[]; total: number }) => {
+			// Ignore responses from a filter the user has already changed.
+			if (id !== requestId) return
+			studentRows.value = reset
+				? data.students
+				: [...studentRows.value, ...data.students]
+			studentTotal.value = data.total
+		})
+		.catch((err: any) => {
+			if (id !== requestId) return
+			toast.error(err?.messages?.[0] || __('Could not load students'))
+		})
+}
+
+loadStudents()
+
+watch(
+	() => students.data,
+	(newData) => {
+		// This resource is only ever fetched by a StudentModal insert, so any
+		// data here means a student was just enrolled.
+		if (newData) loadStudents()
+	}
+)
 
 const filteredChartData = computed(() =>
 	(chartData.data || []).filter((item: { value: number }) => item.value > 0)
 )
 
-watch(searchFilter, () => {
-	let filters: Record<string, any> = {
-		batch: props.batch?.data?.name,
-	}
-
-	if (searchFilter.value) {
-		filters.member_name = ['like', `%${searchFilter.value}%`]
-	}
-
-	students.update({ filters })
-	students.reload()
-})
+const loadStudentsDebounced = useDebounceFn(() => loadStudents(), 300)
+watch([searchFilter, minProgress, maxProgress], loadStudentsDebounced)
+watch([progressBand, studentSort], () => loadStudents())
 
 const studentColumns = computed(() => {
 	return [
@@ -310,6 +368,11 @@ const studentColumns = computed(() => {
 			label: __('Name'),
 			key: 'member_name',
 			width: '40%',
+		},
+		{
+			label: __('Progress'),
+			key: 'progress',
+			width: '30%',
 		},
 		{
 			label: __('Enrolled On'),
@@ -347,7 +410,7 @@ function confirmRemoveStudent() {
 		.then(() => {
 			toast.success(__('Student removed from batch'))
 			showRemoveDialog.value = false
-			students.reload()
+			loadStudents()
 		})
 		.catch((e: any) => {
 			toast.error(e?.messages?.[0] || __('Could not remove student'))
@@ -361,7 +424,15 @@ async function downloadProgress() {
 	try {
 		await downloadFile(
 			'/api/method/lms.lms.api.export_batch_student_progress?batch=' +
-				encodeURIComponent(props.batch?.data?.name),
+				encodeURIComponent(props.batch?.data?.name) +
+				'&' +
+				exportParams({
+					search: searchFilter.value,
+					band: progressBand.value,
+					min: minProgress.value,
+					max: maxProgress.value,
+					sort: studentSort.value,
+				}),
 			'batch_progress.xlsx'
 		)
 	} catch (err) {
@@ -374,7 +445,7 @@ async function downloadProgress() {
 
 const showProgressChart = computed(
 	() =>
-		students.data?.length &&
+		props.batch?.data?.students?.length &&
 		(props.batch?.data?.courses?.length ||
 			props.batch?.data?.assessments?.length)
 )

@@ -19,9 +19,11 @@ from frappe.translate import get_all_translations
 from frappe.utils import (
 	add_days,
 	cint,
+	strip_html_tags,
 	date_diff,
 	flt,
 	format_date,
+	format_datetime,
 	get_datetime,
 	getdate,
 	now,
@@ -2143,6 +2145,137 @@ def get_average_course_progress(progress_list: list):
 	return flt(average_progress, frappe.get_system_settings("float_precision") or 3)
 
 
+# Progress bands shared by the dashboard filters and exports. They match the
+# buckets of get_progress_distribution(): (low, high, high_inclusive).
+PROGRESS_BANDS = {
+	"just_started": (0, 30, False),
+	"in_progress": (30, 60, False),
+	"advanced": (60, 100, False),
+	"completed": (100, 100, True),
+}
+
+STUDENT_SORTS = ("progress_desc", "progress_asc", "name_asc", "creation_desc", "creation_asc")
+
+
+def get_progress_bounds(
+	progress_band: str | None = None,
+	min_progress: float | str | None = None,
+	max_progress: float | str | None = None,
+):
+	"""(low, high, high_inclusive) for a band, or None when no range filter applies."""
+	if not progress_band:
+		return None
+	if progress_band in PROGRESS_BANDS:
+		return PROGRESS_BANDS[progress_band]
+	if progress_band == "custom":
+		low = flt(min_progress) if min_progress not in (None, "") else 0
+		high = flt(max_progress) if max_progress not in (None, "") else 100
+		if low > high:
+			low, high = high, low
+		return (low, high, True)
+	frappe.throw(_("Invalid progress range."))
+
+
+def progress_in_bounds(progress: float, bounds) -> bool:
+	if not bounds:
+		return True
+	low, high, inclusive = bounds
+	progress = flt(progress)
+	return progress >= low and (progress <= high if inclusive else progress < high)
+
+
+def sort_students(rows: list, sort: str | None) -> list:
+	"""Sort student rows (dicts with member_name, progress, creation) in place."""
+	sort = sort if sort in STUDENT_SORTS else "name_asc"
+	by_name = lambda r: (r.get("member_name") or r.get("member") or "").lower()  # noqa: E731
+	rows.sort(key=by_name)
+	if sort == "progress_desc":
+		rows.sort(key=lambda r: flt(r.get("progress")), reverse=True)
+	elif sort == "progress_asc":
+		rows.sort(key=lambda r: flt(r.get("progress")))
+	elif sort == "creation_desc":
+		rows.sort(key=lambda r: r.get("creation"), reverse=True)
+	elif sort == "creation_asc":
+		rows.sort(key=lambda r: r.get("creation"))
+	return rows
+
+
+def get_filtered_course_students(
+	course: str,
+	search: str | None = None,
+	progress_band: str | None = None,
+	min_progress=None,
+	max_progress=None,
+	sort: str | None = None,
+) -> list:
+	filters = {"course": course}
+	if search:
+		filters["member_name"] = ["like", f"%{search}%"]
+	rows = frappe.get_all(
+		"LMS Enrollment", filters, ["member", "member_name", "progress", "creation"]
+	)
+	bounds = get_progress_bounds(progress_band, min_progress, max_progress)
+	rows = [r for r in rows if progress_in_bounds(r.progress, bounds)]
+	return sort_students(rows, sort)
+
+
+def get_filtered_batch_students(
+	batch: str,
+	search: str | None = None,
+	progress_band: str | None = None,
+	min_progress=None,
+	max_progress=None,
+	sort: str | None = None,
+) -> list:
+	"""Batch students with their batch progress: the average course progress
+	across the batch's courses (a course they aren't enrolled in counts as 0)."""
+	filters = {"batch": batch}
+	if search:
+		filters["member_name"] = ["like", f"%{search}%"]
+	students = frappe.get_all(
+		"LMS Batch Enrollment",
+		filters,
+		["name", "member", "member_name", "member_username", "member_image", "creation"],
+	)
+	courses = frappe.get_all("Batch Course", {"parent": batch}, pluck="course")
+	per_member = {}
+	if courses and students:
+		for row in frappe.get_all(
+			"LMS Enrollment",
+			{"course": ["in", courses], "member": ["in", [s.member for s in students]]},
+			["member", "progress"],
+		):
+			per_member.setdefault(row.member, []).append(flt(row.progress))
+	for student in students:
+		values = per_member.get(student.member, [])
+		student.progress = round(sum(values) / len(courses), 2) if courses else 0
+
+	bounds = get_progress_bounds(progress_band, min_progress, max_progress)
+	students = [s for s in students if progress_in_bounds(s.progress, bounds)]
+	return sort_students(students, sort)
+
+
+@frappe.whitelist()
+def get_batch_students_progress(
+	batch: str,
+	search: str | None = None,
+	progress_band: str | None = None,
+	min_progress=None,
+	max_progress=None,
+	sort: str | None = "creation_desc",
+	start: int = 0,
+	page_length: int = 50,
+):
+	"""Paged, filterable, sortable list of a batch's students with batch progress."""
+	if not can_modify_batch(batch):
+		frappe.throw(_("You are not authorized to view the progress of this batch."), frappe.PermissionError)
+
+	rows = get_filtered_batch_students(batch, search, progress_band, min_progress, max_progress, sort)
+	start = max(cint(start), 0)
+	page_length = min(max(cint(page_length), 1), 500)
+	return {"students": rows[start : start + page_length], "total": len(rows)}
+
+
 def get_progress_distribution(progressList: list):
 	distribution = [
 		{
@@ -2680,8 +2813,15 @@ def set_member_lesson_progress(course: str, member: str, lessons: list, complete
 
 
 @frappe.whitelist()
-def get_course_assessment_progress(course: str, member: str):
-	if not can_modify_course(course):
+def get_course_assessment_progress(course: str, member: str, batch: str | None = None):
+	# Batch staff may look at a course of their batch for a student of that batch.
+	batch_access = bool(
+		batch
+		and can_modify_batch(batch)
+		and frappe.db.exists("Batch Course", {"parent": batch, "course": course})
+		and frappe.db.exists("LMS Batch Enrollment", {"batch": batch, "member": member})
+	)
+	if not batch_access and not can_modify_course(course):
 		frappe.throw(
 			_("You do not have permission to access this course's assessment data."), frappe.PermissionError
 		)
@@ -2727,7 +2867,139 @@ def get_course_quiz_progress(course: str, member: str):
 		attempt.update({"chapter_idx": quiz.chapter_idx, "idx": quiz.idx})
 		attempts.append(attempt)
 
+	details = get_quiz_question_attempts([member], [q.name for q in quizzes])
+	for attempt in attempts:
+		info = details[(member, attempt.quiz)]
+		attempt.total_attempts = info.total_attempts
+		attempt.questions = info.questions
+
 	return attempts
+
+
+def get_quiz_questions(quizzes: list) -> dict:
+	"""{quiz: [{question, type, text}]} in the quiz's own question order."""
+	if not quizzes:
+		return {}
+	rows = frappe.get_all(
+		"LMS Quiz Question",
+		{"parent": ["in", list(quizzes)], "parenttype": "LMS Quiz"},
+		["parent", "question", "type", "idx"],
+		order_by="parent, idx",
+	)
+	texts = {}
+	names = list({r.question for r in rows if r.question})
+	if names:
+		for q in frappe.get_all("LMS Question", {"name": ["in", names]}, ["name", "question", "type"]):
+			texts[q.name] = q
+	out = {}
+	for r in rows:
+		q = texts.get(r.question) or frappe._dict()
+		out.setdefault(r.parent, []).append(
+			frappe._dict(
+				question=r.question,
+				type=r.type or q.get("type"),
+				text=strip_html_tags(q.get("question") or r.question or "").strip(),
+			)
+		)
+	return out
+
+
+def get_quiz_question_attempts(members: list, quizzes: list) -> dict:
+	"""Per-question attempt history, keyed by (member, quiz).
+
+	Each quiz submission is one attempt. For every question we count the
+	attempts in which that question actually appeared (shuffled / limited
+	question sets can leave it out) up to and including the first correct one.
+	"""
+	result = {}
+	if not members or not quizzes:
+		return result
+
+	Submission = frappe.qb.DocType("LMS Quiz Submission")
+	Result = frappe.qb.DocType("LMS Quiz Result")
+	rows = (
+		frappe.qb.from_(Submission)
+		.left_join(Result)
+		.on((Result.parent == Submission.name) & (Result.parenttype == "LMS Quiz Submission"))
+		.select(
+			Submission.name.as_("submission"),
+			Submission.member,
+			Submission.quiz,
+			Submission.creation,
+			Result.question_name,
+			Result.is_correct,
+		)
+		.where(Submission.member.isin(list(members)) & Submission.quiz.isin(list(quizzes)))
+		.orderby(Submission.creation)
+	).run(as_dict=True)
+
+	questions_by_quiz = get_quiz_questions(quizzes)
+	history = {}
+	for row in rows:
+		key = (row.member, row.quiz)
+		entry = history.setdefault(key, {"submissions": set(), "per_question": {}})
+		entry["submissions"].add(row.submission)
+		if not row.question_name:
+			continue
+		q = entry["per_question"].setdefault(
+			row.question_name, {"tries": 0, "attempts_to_correct": None, "first_correct_on": None}
+		)
+		if q["attempts_to_correct"] is not None:
+			continue  # already answered correctly; later attempts don't matter
+		q["tries"] += 1
+		if cint(row.is_correct):
+			q["attempts_to_correct"] = q["tries"]
+			q["first_correct_on"] = row.creation
+
+	empty = {"submissions": set(), "per_question": {}}
+	for member in members:
+		for quiz in quizzes:
+			result[(member, quiz)] = _quiz_attempt_summary(
+				history.get((member, quiz), empty), questions_by_quiz.get(quiz, [])
+			)
+	return result
+
+
+def _quiz_attempt_summary(entry: dict, quiz_questions: list):
+	"""Per-question attempt summary for one student's submissions of one quiz."""
+	questions = []
+	for number, question in enumerate(quiz_questions, start=1):
+		stats = entry["per_question"].get(question.question) or {}
+		tries = stats.get("tries", 0)
+		if question.type == "Open Ended":
+			state = "manual"
+		elif stats.get("attempts_to_correct"):
+			state = "correct"
+		elif tries:
+			state = "not_correct"
+		else:
+			state = "not_attempted"
+		questions.append(
+			frappe._dict(
+				number=number,
+				question=question.question,
+				text=question.text,
+				type=question.type,
+				state=state,
+				tries=tries,
+				attempts_to_correct=stats.get("attempts_to_correct"),
+				first_correct_on=stats.get("first_correct_on"),
+				label=quiz_attempt_label(state, stats.get("attempts_to_correct"), tries),
+			)
+		)
+	return frappe._dict(total_attempts=len(entry["submissions"]), questions=questions)
+
+
+def quiz_attempt_label(state: str, attempts_to_correct: int | None, tries: int) -> str:
+	if state == "correct":
+		return _("Correct on attempt {0}").format(attempts_to_correct)
+	if state == "not_correct":
+		if tries == 1:
+			return _("Not yet correct (1 try)")
+		return _("Not yet correct ({0} tries)").format(tries)
+	if state == "manual":
+		return _("Manually graded")
+	return _("Not attempted")
 
 
 def get_course_assignment_progress(course: str, member: str):
@@ -2741,7 +3013,7 @@ def get_course_assignment_progress(course: str, member: str):
 				"assignment": assignment.name,
 				"member": member,
 			},
-			["name", "status", "assignment", "assignment_title"],
+			["name", "status", "assignment", "assignment_title", "creation", "last_uploaded_on"],
 			order_by="creation desc",
 			limit=1,
 		)
@@ -3015,6 +3287,109 @@ def export_course_as_zip(course_name: str):
 	export_course_zip(course_name)
 
 
+@frappe.whitelist()
+def download_my_course_notes(course: str):
+	"""Download the logged-in learner's notes and highlights for a course as a PDF.
+
+	Notes are looked up by lesson (not the note's `course` field, which older
+	and current note writes leave empty) and ordered by chapter, then lesson.
+	"""
+	from frappe.utils.pdf import get_pdf
+
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Please log in to download your notes."), frappe.PermissionError)
+
+	course_title = frappe.db.get_value("LMS Course", course, "title")
+	if not course_title:
+		frappe.throw(_("Course not found."), frappe.DoesNotExistError)
+
+	chapters = frappe.get_all("Chapter Reference", {"parent": course}, order_by="idx", pluck="chapter")
+	sections = []
+	for chapter in chapters:
+		lessons = frappe.get_all("Lesson Reference", {"parent": chapter}, order_by="idx", pluck="lesson")
+		if not lessons:
+			continue
+		notes = frappe.get_all(
+			"LMS Lesson Note",
+			{"member": frappe.session.user, "lesson": ("in", lessons)},
+			["lesson", "note", "highlighted_text"],
+			order_by="creation asc",
+		)
+		by_lesson = {}
+		for note in notes:
+			by_lesson.setdefault(note.lesson, []).append(note)
+
+		lesson_blocks = []
+		for lesson in lessons:
+			rows = by_lesson.get(lesson)
+			if not rows:
+				continue
+			plain = [r.note for r in rows if not r.highlighted_text and is_note_filled(r.note)]
+			highlights = [r for r in rows if r.highlighted_text]
+			if not plain and not highlights:
+				continue
+			lesson_blocks.append(
+				{
+					"title": frappe.db.get_value("Course Lesson", lesson, "title") or lesson,
+					"notes": plain,
+					"highlights": highlights,
+				}
+			)
+		if lesson_blocks:
+			sections.append(
+				{
+					"title": frappe.db.get_value("Course Chapter", chapter, "title") or chapter,
+					"lessons": lesson_blocks,
+				}
+			)
+
+	html = render_notes_html(course_title, sections)
+	safe_title = re.sub(r"[^a-z0-9]+", "_", course_title.lower()).strip("_") or "course"
+	frappe.local.response.filename = f"{safe_title}_my_notes.pdf"
+	frappe.local.response.filecontent = get_pdf(html)
+	frappe.local.response.type = "download"
+
+
+def is_note_filled(html: str | None) -> bool:
+	if not html:
+		return False
+	text = re.sub(r"<[^>]*>", "", html).replace("&nbsp;", " ").strip()
+	return bool(text)
+
+
+def render_notes_html(course_title: str, sections: list) -> str:
+	from frappe.utils import escape_html
+
+	parts = [
+		"<html><head><meta charset='utf-8'><style>",
+		"body{font-family:sans-serif;font-size:12px;color:#222}",
+		"h1{font-size:20px}h2{font-size:16px;margin-top:24px;border-bottom:1px solid #ddd}",
+		"h3{font-size:14px;margin-top:16px}",
+		"blockquote{border-left:3px solid #f5c542;margin:6px 0;padding:2px 10px;color:#444}",
+		".muted{color:#888;font-size:11px}",
+		"</style></head><body>",
+		f"<h1>{escape_html(course_title)} &mdash; {escape_html(_('My Notes'))}</h1>",
+		f"<div class='muted'>{escape_html(format_date(getdate(), 'dd-MM-yyyy'))}</div>",
+	]
+	if not sections:
+		parts.append(f"<p>{escape_html(_('You have not taken any notes in this course yet.'))}</p>")
+	for section in sections:
+		parts.append(f"<h2>{escape_html(section['title'])}</h2>")
+		for lesson in section["lessons"]:
+			parts.append(f"<h3>{escape_html(lesson['title'])}</h3>")
+			for note in lesson["notes"]:
+				# Note bodies are sanitized rich text from the Text Editor field.
+				parts.append(f"<div>{note}</div>")
+			if lesson["highlights"]:
+				parts.append(f"<p class='muted'>{escape_html(_('Highlights'))}</p>")
+				for h in lesson["highlights"]:
+					parts.append(f"<blockquote>{escape_html(h.highlighted_text)}</blockquote>")
+					if is_note_filled(h.note):
+						parts.append(f"<div>{h.note}</div>")
+	parts.append("</body></html>")
+	return "".join(parts)
+
+
 PROGRESS_EXPORT_HEADERS = [
 	"Student Name",
 	"Course",
@@ -3030,8 +3405,18 @@ PROGRESS_EXPORT_HEADERS = [
 
 
 @frappe.whitelist()
-def export_batch_student_progress(batch: str):
-	"""Download an Excel sheet with one row per student per batch course."""
+def export_batch_student_progress(
+	batch: str,
+	search: str | None = None,
+	progress_band: str | None = None,
+	min_progress=None,
+	max_progress=None,
+	sort: str | None = None,
+):
+	"""Download an Excel sheet with one row per student per batch course.
+
+	The optional filters match the batch dashboard, so the export contains the
+	same students the list is showing."""
 	if not can_modify_batch(batch):
 		frappe.throw(_("You are not authorized to export the progress of this batch."), frappe.PermissionError)
 
@@ -3039,9 +3424,7 @@ def export_batch_student_progress(batch: str):
 	download_date = format_date(getdate(), "dd-MM-yyyy")
 	courses = frappe.get_all("Batch Course", {"parent": batch}, ["course", "title"], order_by="idx")
 	course_info = {course.course: get_course_progress_export_info(course.course) for course in courses}
-	students = frappe.get_all(
-		"LMS Batch Enrollment", {"batch": batch}, ["member", "member_name"], order_by="member_name"
-	)
+	students = get_filtered_batch_students(batch, search, progress_band, min_progress, max_progress, sort)
 
 	rows = [[_(header) for header in PROGRESS_EXPORT_HEADERS]]
 	for student in students:
@@ -3052,21 +3435,57 @@ def export_batch_student_progress(batch: str):
 				)
 			)
 
-	send_progress_xlsx(rows, batch_title)
+	batch_label = lambda member: batch_title  # noqa: E731
+	sections = [
+		{
+			"students": students,
+			"course_label": course.title,
+			"batch_label": batch_label,
+			"quizzes": [q.name for q in get_assessment_from_lesson(course.course, "quiz")],
+			"assignments": [a.name for a in get_assessment_from_lesson(course.course, "assignment")],
+		}
+		for course in courses
+	]
+	# Quizzes/assignments attached to the batch itself rather than a course lesson
+	batch_assessments = frappe.get_all(
+		"LMS Assessment", {"parent": batch}, ["assessment_type", "assessment_name"], order_by="idx"
+	)
+	if batch_assessments:
+		sections.append(
+			{
+				"students": students,
+				"course_label": _("Batch assessment"),
+				"batch_label": batch_label,
+				"quizzes": [a.assessment_name for a in batch_assessments if a.assessment_type == "LMS Quiz"],
+				"assignments": [
+					a.assessment_name for a in batch_assessments if a.assessment_type == "LMS Assignment"
+				],
+			}
+		)
+
+	send_progress_xlsx(rows, batch_title, get_assessment_export_sheets(sections))
 
 
 @frappe.whitelist()
-def export_course_student_progress(course: str):
-	"""Download an Excel sheet with one row per student enrolled in the course."""
+def export_course_student_progress(
+	course: str,
+	search: str | None = None,
+	progress_band: str | None = None,
+	min_progress=None,
+	max_progress=None,
+	sort: str | None = None,
+):
+	"""Download an Excel sheet with one row per student enrolled in the course.
+
+	The optional filters match the course dashboard, so the export contains the
+	same students the list is showing."""
 	if not can_modify_course(course):
 		frappe.throw(_("You are not authorized to export the progress of this course."), frappe.PermissionError)
 
 	course_title = frappe.db.get_value("LMS Course", course, "title") or course
 	download_date = format_date(getdate(), "dd-MM-yyyy")
 	info = get_course_progress_export_info(course)
-	students = frappe.get_all(
-		"LMS Enrollment", {"course": course}, ["member", "member_name"], order_by="member_name"
-	)
+	students = get_filtered_course_students(course, search, progress_band, min_progress, max_progress, sort)
 
 	# Batches that include this course, so each student can be shown against theirs
 	BatchCourse = frappe.qb.DocType("Batch Course")
@@ -3097,7 +3516,16 @@ def export_course_student_progress(course: str):
 			)
 		)
 
-	send_progress_xlsx(rows, course_title)
+	sections = [
+		{
+			"students": students,
+			"course_label": course_title,
+			"batch_label": lambda member: ", ".join(student_batches.get(member, [])),
+			"quizzes": [q.name for q in get_assessment_from_lesson(course, "quiz")],
+			"assignments": info.assignments_ordered,
+		}
+	]
+	send_progress_xlsx(rows, course_title, get_assessment_export_sheets(sections))
 
 
 def get_course_progress_export_info(course: str) -> dict:
@@ -3110,6 +3538,9 @@ def get_course_progress_export_info(course: str) -> dict:
 			for chapter in chapters
 		},
 		assignments=list({a.name for a in get_assessment_from_lesson(course, "assignment")}),
+		assignments_ordered=list(
+			dict.fromkeys(a.name for a in get_assessment_from_lesson(course, "assignment"))
+		),
 	)
 
 
@@ -3163,14 +3594,142 @@ def get_student_progress_export_row(
 	]
 
 
-def send_progress_xlsx(rows: list, title: str):
+def send_progress_xlsx(rows: list, title: str, extra_sheets: list | None = None):
+	"""Send the progress sheet, plus any (sheet_name, rows) in extra_sheets."""
+	from io import BytesIO
+
+	import xlsxwriter
 	from frappe.utils.xlsxutils import make_xlsx
 
-	xlsx_file = make_xlsx(rows, "Student Progress")
+	output = BytesIO()
+	workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+	make_xlsx(rows, "Student Progress", wb=workbook)
+	for sheet_name, sheet_rows in extra_sheets or []:
+		make_xlsx(sheet_rows, sheet_name, wb=workbook)
+	workbook.close()
+
 	safe_title = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
 	frappe.local.response.filename = f"{safe_title}_progress_{getdate()}.xlsx"
-	frappe.local.response.filecontent = xlsx_file.getvalue()
+	frappe.local.response.filecontent = output.getvalue()
 	frappe.local.response.type = "binary"
+
+
+QUIZ_ATTEMPT_EXPORT_HEADERS = [
+	"Student Name",
+	"Email",
+	"Course",
+	"Batch",
+	"Quiz",
+	"Question No.",
+	"Question",
+	"Result",
+	"Attempts to Correct",
+	"Tries",
+	"First Correct On",
+	"Total Quiz Attempts",
+]
+
+ASSIGNMENT_EXPORT_HEADERS = [
+	"Student Name",
+	"Email",
+	"Course",
+	"Batch",
+	"Assignment",
+	"Submitted On",
+	"Last Uploaded On",
+	"Status",
+	"Evaluator",
+]
+
+
+def _export_datetime(value) -> str:
+	return format_datetime(value, "dd-MM-yyyy HH:mm") if value else ""
+
+
+def get_assessment_export_sheets(sections: list) -> list:
+	"""Build the "Quiz Attempts" and "Assignments" sheets.
+
+	`sections` is a list of dicts: students, course_label, batch_label (a
+	function member -> str), quizzes and assignments (lists of names, in order).
+	"""
+	quiz_rows = [[_(h) for h in QUIZ_ATTEMPT_EXPORT_HEADERS]]
+	assignment_rows = [[_(h) for h in ASSIGNMENT_EXPORT_HEADERS]]
+
+	for section in sections:
+		students = section["students"]
+		members = [s.member for s in students]
+		quizzes, assignments = section["quizzes"], section["assignments"]
+		quiz_titles = (
+			dict(frappe.get_all("LMS Quiz", {"name": ["in", quizzes]}, ["name", "title"], as_list=True))
+			if quizzes
+			else {}
+		)
+		assignment_titles = (
+			dict(
+				frappe.get_all("LMS Assignment", {"name": ["in", assignments]}, ["name", "title"], as_list=True)
+			)
+			if assignments
+			else {}
+		)
+		attempts = get_quiz_question_attempts(members, quizzes)
+
+		submissions = {}
+		if members and assignments:
+			for sub in frappe.get_all(
+				"LMS Assignment Submission",
+				{"member": ["in", members], "assignment": ["in", assignments]},
+				["member", "assignment", "creation", "last_uploaded_on", "status", "evaluator"],
+				order_by="creation desc",
+			):
+				submissions.setdefault((sub.member, sub.assignment), sub)
+		evaluators = {
+			e.name: e.full_name
+			for e in frappe.get_all(
+				"User",
+				{"name": ["in", list({s.evaluator for s in submissions.values() if s.evaluator})]},
+				["name", "full_name"],
+			)
+		} if submissions else {}
+
+		for student in students:
+			name = student.member_name or student.member
+			batch_label = section["batch_label"](student.member)
+			for quiz in quizzes:
+				summary = attempts[(student.member, quiz)]
+				for q in summary.questions:
+					quiz_rows.append(
+						[
+							name,
+							student.member,
+							section["course_label"],
+							batch_label,
+							quiz_titles.get(quiz, quiz),
+							q.number,
+							q.text,
+							q.label,
+							q.attempts_to_correct or "",
+							q.tries,
+							_export_datetime(q.first_correct_on),
+							summary.total_attempts,
+						]
+					)
+			for assignment in assignments:
+				sub = submissions.get((student.member, assignment))
+				assignment_rows.append(
+					[
+						name,
+						student.member,
+						section["course_label"],
+						batch_label,
+						assignment_titles.get(assignment, assignment),
+						_export_datetime(sub.creation) if sub else "",
+						_export_datetime(sub.last_uploaded_on) if sub else "",
+						sub.status if sub else _("Not Submitted"),
+						evaluators.get(sub.evaluator, sub.evaluator or "") if sub else "",
+					]
+				)
+
+	return [(_("Quiz Attempts"), quiz_rows), (_("Assignments"), assignment_rows)]
 
 
 @frappe.whitelist()

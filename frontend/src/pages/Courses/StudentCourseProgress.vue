@@ -71,68 +71,10 @@
 					</div>
 
 					<div class="space-y-3">
-						<div
-							v-if="orderedQuizzes.length"
-							class="border border-outline-gray-modals rounded-lg px-3 pt-3 max-h-[60vh] overflow-y-auto"
-						>
-							<div
-								class="sticky top-0 z-10 grid grid-cols-4 gap-5 bg-surface-white py-3 text-ink-gray-5"
-							>
-								<div class="col-span-2">
-									{{ __('Quiz Progress') }}
-								</div>
-								<div>
-									{{ __('Score') }}
-								</div>
-								<div>
-									{{ __('Percentage') }}
-								</div>
-							</div>
-							<div
-								v-for="quiz in orderedQuizzes"
-								class="grid grid-cols-4 gap-15 text-sm py-1 my-1"
-							>
-								<div class="col-span-2 leading-5">
-									<span v-if="sequenceLabel(quiz)" class="me-3 text-xs">
-										{{ sequenceLabel(quiz) }}
-									</span>
-									<span>
-										{{ quiz.quiz_title }}
-									</span>
-								</div>
-								<div>
-									{{ quiz.score }}
-								</div>
-								<div>{{ quiz.percentage }}%</div>
-							</div>
-						</div>
-
-						<div
-							v-if="orderedAssignments.length"
-							class="border border-outline-gray-modals rounded-lg px-3 pt-3 h-fit"
-						>
-							<div>
-								<div class="text-ink-gray-5 mb-5">
-									{{ __('Assignment Progress') }}
-								</div>
-							</div>
-							<div
-								v-for="assignment in orderedAssignments"
-								class="flex justify-between text-sm py-2 my-1"
-							>
-								<div>
-									<span v-if="sequenceLabel(assignment)" class="me-3 text-xs">
-										{{ sequenceLabel(assignment) }}
-									</span>
-									<span>
-										{{ assignment.assignment_title }}
-									</span>
-								</div>
-								<Badge :theme="getAssessmentStatusTheme(assignment.status)">
-									{{ assignment.status }}
-								</Badge>
-							</div>
-						</div>
+						<StudentAssessmentPanels
+							:quizzes="orderedQuizzes"
+							:assignments="orderedAssignments"
+						/>
 
 						<div
 							v-if="orderedExercises.length"
@@ -176,6 +118,7 @@ import {
 	Tooltip,
 } from 'frappe-ui'
 import ProgressBar from '@/components/ProgressBar.vue'
+import StudentAssessmentPanels from '@/components/StudentAssessmentPanels.vue'
 import { computed } from 'vue'
 import { Check, Minus } from 'lucide-vue-next'
 
