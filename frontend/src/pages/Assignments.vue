@@ -4,21 +4,32 @@
 			<Breadcrumbs :items="breadcrumbs" />
 		</template>
 		<template #right-header>
-			<Button
-				v-if="!readOnlyMode"
-				variant="solid"
-				@click="
-					() => {
-						assignmentID = 'new'
-						showAssignmentForm = true
-					}
-				"
-			>
-				<template #prefix>
-					<Plus class="size-4 stroke-1.5" />
-				</template>
-				{{ __('Create') }}
-			</Button>
+			<div class="flex items-center gap-2">
+				<Button
+					variant="subtle"
+					@click="router.push({ name: 'AssignmentSubmissionList' })"
+				>
+					<template #prefix>
+						<FileText class="size-4 stroke-1.5" />
+					</template>
+					{{ __('Submissions') }}
+				</Button>
+				<Button
+					v-if="!readOnlyMode"
+					variant="solid"
+					@click="
+						() => {
+							assignmentID = 'new'
+							showAssignmentForm = true
+						}
+					"
+				>
+					<template #prefix>
+						<Plus class="size-4 stroke-1.5" />
+					</template>
+					{{ __('Create') }}
+				</Button>
+			</div>
 		</template>
 	</LayoutHeader>
 
@@ -160,7 +171,7 @@ import {
 } from 'frappe-ui'
 import Select from '@/components/Controls/Select.vue'
 import { computed, inject, onMounted, ref, watch } from 'vue'
-import { Plus } from 'lucide-vue-next'
+import { FileText, Plus } from 'lucide-vue-next'
 import { useRouter, useRoute } from 'vue-router'
 import { sessionStore } from '../stores/session'
 import AssignmentForm from '@/components/Modals/AssignmentForm.vue'

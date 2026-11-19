@@ -3,6 +3,23 @@
 		<template #left-header>
 			<Breadcrumbs :items="breadcrumbs" />
 		</template>
+		<template #right-header>
+			<Button
+				:disabled="!assignmentID || !submissions.data?.length"
+				:loading="downloading"
+				:title="
+					assignmentID
+						? __('Download all submissions as a ZIP')
+						: __('Select an assignment to download its submissions')
+				"
+				@click="downloadAllSubmissions"
+			>
+				<template #prefix>
+					<Download class="size-4 stroke-1.5" />
+				</template>
+				{{ __('Download All') }}
+			</Button>
+		</template>
 	</LayoutHeader>
 	<div class="md:w-3/4 md:mx-auto py-5 mx-5">
 		<div class="grid grid-cols-3 gap-5 mb-5">
@@ -76,6 +93,7 @@
 import {
 	Badge,
 	Breadcrumbs,
+	Button,
 	createListResource,
 	FormControl,
 	ListView,
@@ -84,11 +102,12 @@ import {
 	ListRows,
 	ListRow,
 	ListRowItem,
+	toast,
 	usePageMeta,
 } from 'frappe-ui'
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Pencil } from 'lucide-vue-next'
+import { Download, Pencil } from 'lucide-vue-next'
 import { sessionStore } from '../stores/session'
 import Link from '@/components/Controls/Link.vue'
 import LayoutHeader from '@/components/Layouts/LayoutHeader.vue'
@@ -162,6 +181,52 @@ const reloadSubmissions = () => {
 		filters: getAssignmentFilters(),
 	})
 	submissions.reload()
+}
+
+const downloading = ref(false)
+
+const downloadAllSubmissions = async () => {
+	if (!assignmentID.value) return
+	downloading.value = true
+	try {
+		const params = new URLSearchParams({ assignment: assignmentID.value })
+		if (status.value) params.append('status', status.value)
+		if (member.value) params.append('member', member.value)
+		const response = await fetch(
+			'/api/method/lms.lms.api.download_assignment_submissions?' +
+				params.toString(),
+			{ method: 'GET', credentials: 'include' },
+		)
+		if (!response.ok) {
+			let message = __('Could not download submissions')
+			try {
+				const data = await response.json()
+				const serverMessages = JSON.parse(data._server_messages || '[]')
+				if (serverMessages.length) {
+					message = JSON.parse(serverMessages[0]).message || message
+				}
+			} catch (e) {}
+			throw new Error(message)
+		}
+		const blob = await response.blob()
+		const disposition = response.headers.get('Content-Disposition')
+		let filename = 'submissions.zip'
+		if (disposition && disposition.includes('filename=')) {
+			filename = disposition.split('filename=')[1].replace(/"/g, '').trim()
+		}
+		const url = window.URL.createObjectURL(blob)
+		const a = document.createElement('a')
+		a.href = url
+		a.download = filename
+		document.body.appendChild(a)
+		a.click()
+		a.remove()
+		window.URL.revokeObjectURL(url)
+	} catch (err) {
+		toast.error(err.message)
+	} finally {
+		downloading.value = false
+	}
 }
 
 const submissionColumns = computed(() => {

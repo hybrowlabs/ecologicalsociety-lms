@@ -2115,19 +2115,18 @@ def track_new_watch_time(lesson: str, video: dict):
 
 
 @frappe.whitelist()
-def get_course_progress_distribution(course: str):
+def get_course_progress_distribution(course: str, batch: str | None = None):
 	if not can_modify_course(course):
 		frappe.throw(
 			_("You do not have permission to access this course's progress data."), frappe.PermissionError
 		)
 
-	all_progress = frappe.get_all(
-		"LMS Enrollment",
-		{
-			"course": course,
-		},
-		pluck="progress",
-	)
+	filters = {"course": course}
+	member_filter = get_course_batch_member_filter(course, batch)
+	if member_filter:
+		filters["member"] = member_filter
+
+	all_progress = frappe.get_all("LMS Enrollment", filters, pluck="progress")
 
 	average_progress = get_average_course_progress(all_progress)
 	progress_distribution = get_progress_distribution(all_progress)
@@ -2135,6 +2134,7 @@ def get_course_progress_distribution(course: str):
 	return {
 		"average_progress": average_progress,
 		"progress_distribution": progress_distribution,
+		"enrolled": len(all_progress),
 	}
 
 
@@ -2200,6 +2200,99 @@ def sort_students(rows: list, sort: str | None) -> list:
 	return rows
 
 
+# Course dashboard batch filter value meaning "students not in any batch of this course".
+NO_BATCH = "__no_batch__"
+
+
+def get_course_batches_with_members(course: str) -> dict:
+	"""{batch: set(members)} for every batch that includes this course.
+
+	Membership comes from LMS Batch Enrollment, not LMS Enrollment.enrollment_from_batch:
+	that field is only set when the batch created the course enrollment, so students
+	who were enrolled in the course before joining the batch would be missed."""
+	BatchCourse = frappe.qb.DocType("Batch Course")
+	BatchEnrollment = frappe.qb.DocType("LMS Batch Enrollment")
+	batches = {
+		b: set()
+		for b in frappe.get_all(
+			"Batch Course", {"course": course, "parenttype": "LMS Batch"}, pluck="parent"
+		)
+	}
+	if not batches:
+		return batches
+	for row in (
+		frappe.qb.from_(BatchEnrollment)
+		.join(BatchCourse)
+		.on(BatchCourse.parent == BatchEnrollment.batch)
+		.select(BatchEnrollment.batch, BatchEnrollment.member)
+		.where((BatchCourse.course == course) & (BatchCourse.parenttype == "LMS Batch"))
+		.run(as_dict=True)
+	):
+		batches.setdefault(row.batch, set()).add(row.member)
+	return batches
+
+
+def get_course_batch_member_filter(course: str, batch: str | None):
+	"""A frappe filter for LMS Enrollment.member limiting a course to one batch.
+
+	None means no filter (all students). NO_BATCH keeps students who are in none of
+	the batches that include this course."""
+	if not batch:
+		return None
+	batches = get_course_batches_with_members(course)
+	if batch == NO_BATCH:
+		members = set().union(*batches.values()) if batches else set()
+		return ["not in", list(members)] if members else None
+	if batch not in batches:
+		frappe.throw(_("This batch does not include this course."))
+	# An impossible member keeps an empty batch from matching everyone
+	return ["in", list(batches[batch]) or [""]]
+
+
+@frappe.whitelist()
+def get_course_batches(course: str) -> list:
+	"""Batches that include this course, for the course dashboard batch filter."""
+	if not can_modify_course(course):
+		frappe.throw(_("You are not authorized to view the batches of this course."), frappe.PermissionError)
+
+	batches = get_course_batches_with_members(course)
+	if not batches:
+		return []
+	rows = frappe.get_all(
+		"LMS Batch",
+		{"name": ["in", list(batches)]},
+		["name", "title", "start_date"],
+		order_by="start_date desc, creation desc",
+	)
+	for row in rows:
+		row.students = len(batches.get(row.name, ()))
+	return rows
+
+
+@frappe.whitelist()
+def get_course_students_progress(
+	course: str,
+	batch: str | None = None,
+	search: str | None = None,
+	progress_band: str | None = None,
+	min_progress=None,
+	max_progress=None,
+	sort: str | None = "creation_desc",
+	start: int = 0,
+	page_length: int = 100,
+):
+	"""Paged, filterable, sortable list of a course's students, optionally for one batch."""
+	if not can_modify_course(course):
+		frappe.throw(_("You are not authorized to view the progress of this course."), frappe.PermissionError)
+
+	rows = get_filtered_course_students(
+		course, search, progress_band, min_progress, max_progress, sort, batch
+	)
+	start = max(cint(start), 0)
+	page_length = min(max(cint(page_length), 1), 1000)
+	return {"students": rows[start : start + page_length], "total": len(rows)}
+
+
 def get_filtered_course_students(
 	course: str,
 	search: str | None = None,
@@ -2207,12 +2300,18 @@ def get_filtered_course_students(
 	min_progress=None,
 	max_progress=None,
 	sort: str | None = None,
+	batch: str | None = None,
 ) -> list:
 	filters = {"course": course}
 	if search:
 		filters["member_name"] = ["like", f"%{search}%"]
+	member_filter = get_course_batch_member_filter(course, batch)
+	if member_filter:
+		filters["member"] = member_filter
 	rows = frappe.get_all(
-		"LMS Enrollment", filters, ["member", "member_name", "progress", "creation"]
+		"LMS Enrollment",
+		filters,
+		["name", "member", "member_name", "member_image", "member_username", "progress", "creation"],
 	)
 	bounds = get_progress_bounds(progress_band, min_progress, max_progress)
 	rows = [r for r in rows if progress_in_bounds(r.progress, bounds)]
@@ -2684,7 +2783,7 @@ def delete_programming_exercise(exercise: str):
 
 
 @frappe.whitelist()
-def get_lesson_completion_stats(course: str):
+def get_lesson_completion_stats(course: str, batch: str | None = None):
 	roles = frappe.get_roles()
 	if "Course Creator" not in roles and "Moderator" not in roles:
 		frappe.throw(_("You do not have permission to access lesson completion stats."))
@@ -2694,6 +2793,18 @@ def get_lesson_completion_stats(course: str):
 	ChapterReference = frappe.qb.DocType("Chapter Reference")
 	Lesson = frappe.qb.DocType("Course Lesson")
 
+	progress_join = (
+		(CourseProgress.lesson == LessonReference.lesson)
+		& (CourseProgress.course == course)
+		& (CourseProgress.status == "Complete")
+	)
+	member_filter = get_course_batch_member_filter(course, batch)
+	if member_filter:
+		operator, members = member_filter
+		progress_join &= (
+			CourseProgress.member.isin(members) if operator == "in" else CourseProgress.member.notin(members)
+		)
+
 	rows = (
 		frappe.qb.from_(LessonReference)
 		.join(ChapterReference)
@@ -2701,11 +2812,7 @@ def get_lesson_completion_stats(course: str):
 		.join(Lesson)
 		.on(LessonReference.lesson == Lesson.name)
 		.left_join(CourseProgress)
-		.on(
-			(CourseProgress.lesson == LessonReference.lesson)
-			& (CourseProgress.course == course)
-			& (CourseProgress.status == "Complete")
-		)
+		.on(progress_join)
 		.select(
 			LessonReference.idx,
 			ChapterReference.idx.as_("chapter_idx"),
@@ -3474,6 +3581,7 @@ def export_course_student_progress(
 	min_progress=None,
 	max_progress=None,
 	sort: str | None = None,
+	batch: str | None = None,
 ):
 	"""Download an Excel sheet with one row per student enrolled in the course.
 
@@ -3485,7 +3593,9 @@ def export_course_student_progress(
 	course_title = frappe.db.get_value("LMS Course", course, "title") or course
 	download_date = format_date(getdate(), "dd-MM-yyyy")
 	info = get_course_progress_export_info(course)
-	students = get_filtered_course_students(course, search, progress_band, min_progress, max_progress, sort)
+	students = get_filtered_course_students(
+		course, search, progress_band, min_progress, max_progress, sort, batch
+	)
 
 	# Batches that include this course, so each student can be shown against theirs
 	BatchCourse = frappe.qb.DocType("Batch Course")
@@ -3525,7 +3635,12 @@ def export_course_student_progress(
 			"assignments": info.assignments_ordered,
 		}
 	]
-	send_progress_xlsx(rows, course_title, get_assessment_export_sheets(sections))
+	file_title = course_title
+	if batch == NO_BATCH:
+		file_title = f"{course_title} no batch"
+	elif batch:
+		file_title = f"{course_title} {frappe.db.get_value('LMS Batch', batch, 'title') or batch}"
+	send_progress_xlsx(rows, file_title, get_assessment_export_sheets(sections))
 
 
 def get_course_progress_export_info(course: str) -> dict:
@@ -3736,3 +3851,135 @@ def get_assessment_export_sheets(sections: list) -> list:
 def import_course_from_zip(zip_file_path: str):
 	frappe.only_for(["Moderator", "Course Creator"])
 	return import_course_zip(zip_file_path)
+
+
+ASSIGNMENT_DOWNLOAD_ROLES = {"Moderator", "Course Creator", "Batch Evaluator", "System Manager"}
+
+
+def _zip_safe_name(value: str, fallback: str = "file") -> str:
+	"""Make a string safe to use as a single path segment inside a ZIP."""
+	value = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", str(value or "")).strip(" .")
+	return value[:120] or fallback
+
+
+def _unique_zip_path(path: str, used: set) -> str:
+	if path not in used:
+		used.add(path)
+		return path
+	base, ext = os.path.splitext(path)
+	counter = 1
+	while f"{base}_{counter}{ext}" in used:
+		counter += 1
+	path = f"{base}_{counter}{ext}"
+	used.add(path)
+	return path
+
+
+@frappe.whitelist()
+def download_assignment_submissions(assignment: str, status: str | None = None, member: str | None = None):
+	"""Download every submission of an assignment as a single ZIP.
+
+	The ZIP holds one folder per student with their uploaded file (or their
+	text answer as HTML), a links.csv for URL submissions and a summary.csv
+	listing every submission. Optional filters match the submissions list page."""
+	import csv
+	from io import BytesIO, StringIO
+
+	if not ASSIGNMENT_DOWNLOAD_ROLES & set(frappe.get_roles()):
+		frappe.throw(_("You are not authorized to download these submissions."), frappe.PermissionError)
+
+	if not frappe.db.exists("LMS Assignment", assignment):
+		frappe.throw(_("Assignment {0} does not exist.").format(assignment))
+
+	filters = {"assignment": assignment}
+	if status:
+		filters["status"] = status
+	if member:
+		filters["member"] = member
+
+	submissions = frappe.get_all(
+		"LMS Assignment Submission",
+		filters=filters,
+		fields=[
+			"name",
+			"member",
+			"member_name",
+			"type",
+			"assignment_attachment",
+			"answer",
+			"status",
+			"evaluator",
+			"creation",
+			"last_uploaded_on",
+		],
+		order_by="member_name asc",
+	)
+	if not submissions:
+		frappe.throw(_("There are no submissions to download."))
+
+	assignment_title = frappe.db.get_value("LMS Assignment", assignment, "title") or assignment
+
+	summary = StringIO()
+	summary_writer = csv.writer(summary)
+	summary_writer.writerow(
+		["Student", "Email", "Type", "Status", "Evaluator", "Submitted On", "Last Uploaded On", "File", "Note"]
+	)
+	links = StringIO()
+	links_writer = csv.writer(links)
+	links_writer.writerow(["Student", "Email", "URL"])
+	has_links = False
+
+	used_paths = set()
+	output = BytesIO()
+	with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+		for row in submissions:
+			folder = _zip_safe_name(f"{row.member_name or row.member} ({row.member})", "student")
+			zip_path, note = "", ""
+
+			if row.type == "URL":
+				links_writer.writerow([row.member_name, row.member, row.answer or ""])
+				has_links = True
+				note = "See links.csv"
+			elif row.type == "Text" or (not row.assignment_attachment and row.answer):
+				zip_path = _unique_zip_path(f"{folder}/answer.html", used_paths)
+				zf.writestr(zip_path, f"<!doctype html><meta charset='utf-8'>{row.answer or ''}")
+			elif row.assignment_attachment:
+				file_name = frappe.db.get_value("File", {"file_url": row.assignment_attachment}, "name")
+				try:
+					if not file_name:
+						raise FileNotFoundError(row.assignment_attachment)
+					content = frappe.get_doc("File", file_name).get_content()
+					if isinstance(content, str):
+						content = content.encode()
+					base = _zip_safe_name(os.path.basename(row.assignment_attachment.split("?")[0]))
+					zip_path = _unique_zip_path(f"{folder}/{base}", used_paths)
+					zf.writestr(zip_path, content)
+				except Exception:
+					zip_path = ""
+					note = "File missing on server"
+			else:
+				note = "No file or answer"
+
+			summary_writer.writerow(
+				[
+					row.member_name,
+					row.member,
+					row.type,
+					row.status,
+					row.evaluator or "",
+					format_datetime(row.creation) if row.creation else "",
+					format_datetime(row.last_uploaded_on) if row.last_uploaded_on else "",
+					zip_path,
+					note,
+				]
+			)
+
+		zf.writestr("summary.csv", summary.getvalue())
+		if has_links:
+			zf.writestr("links.csv", links.getvalue())
+
+	safe_title = re.sub(r"[^a-z0-9]+", "_", assignment_title.lower()).strip("_") or "assignment"
+	frappe.local.response.filename = f"{safe_title}_submissions_{getdate()}.zip"
+	frappe.local.response.filecontent = output.getvalue()
+	frappe.local.response.type = "download"
+	frappe.local.response.content_type = "application/zip"

@@ -1,9 +1,32 @@
 <template>
 	<div class="p-5">
+		<div
+			v-if="courseBatches.data?.length"
+			class="flex items-center justify-between gap-3 mb-5"
+			data-testid="batch-filter"
+		>
+			<div class="text-sm text-ink-gray-5">
+				{{
+					selectedBatch
+						? __('Showing progress for {0}').format(selectedBatchLabel)
+						: __('Showing progress for all students')
+				}}
+			</div>
+			<Select
+				:modelValue="selectedBatch"
+				:options="batchOptions"
+				:placeholder="__('All students')"
+				class="!w-64"
+				@update:modelValue="
+					(value: SelectOptionValue | undefined) =>
+						(selectedBatch = String(value || ''))
+				"
+			/>
+		</div>
 		<div class="grid grid-cols-4 gap-5 mb-5 text-ink-gray-9">
 			<NumberChartGraph
-				:title="__('Enrolled')"
-				:value="formatAmount(course.data?.enrollments)"
+				:title="selectedBatch ? __('Enrolled (batch)') : __('Enrolled')"
+				:value="formatAmount(enrolledCount)"
 			/>
 			<NumberChartGraph
 				:title="__('Average Completion Rate')"
@@ -50,15 +73,15 @@
 					v-model:min="minProgress"
 					v-model:max="maxProgress"
 					v-model:sort="studentSort"
-					:total="studentCount.data"
+					:total="students.data?.total"
 				/>
 				<div
-					v-if="progressList.loading || progressList.data?.length"
+					v-if="students.loading || studentRows.length"
 					class="max-h-[63vh] overflow-y-auto"
 				>
 					<ListView
 						:columns="progressColumns"
-						:rows="progressList.data"
+						:rows="studentRows"
 						rowKey="name"
 						:options="{
 							selectable: false,
@@ -75,7 +98,7 @@
 							>
 							</ListHeaderItem>
 						</ListHeader>
-						<ListRows v-for="row in progressList.data" class="max-h-[500px]">
+						<ListRows v-for="row in studentRows" class="max-h-[500px]">
 							<ListRow
 								:row="row"
 								@click="
@@ -140,16 +163,16 @@
 						</ListRows>
 					</ListView>
 					<div
-						v-if="progressList.data && progressList.hasNextPage"
+						v-if="studentRows.length < (students.data?.total || 0)"
 						class="flex justify-center my-3"
 					>
-						<Button @click="progressList.next()">
+						<Button :loading="students.loading" @click="loadMoreStudents">
 							{{ __('Load More') }}
 						</Button>
 					</div>
 				</div>
 				<div
-					v-else-if="hasActiveFilters"
+					v-else-if="hasActiveFilters || selectedBatch"
 					class="text-center text-sm text-ink-gray-5 py-8"
 					data-testid="no-students-match"
 				>
@@ -187,10 +210,10 @@
 												row.name.startsWith('Just')
 													? 'red'
 													: row.name.startsWith('In')
-													? 'amber'
-													: row.name.startsWith('Adv')
-													? 'blue'
-													: 'green'
+														? 'amber'
+														: row.name.startsWith('Adv')
+															? 'blue'
+															: 'green'
 											][400],
 									}"
 								></div>
@@ -201,9 +224,7 @@
 								</Tooltip>
 								<Tooltip :text="String(row.value)">
 									<div class="ms-auto">
-										{{
-											Math.round((row.value / course.data?.enrollments) * 100)
-										}}%
+										{{ Math.round((row.value / (enrolledCount || 1)) * 100) }}%
 									</div>
 								</Tooltip>
 							</div>
@@ -211,7 +232,8 @@
 						<ECharts
 							class="w-40 h-20 cursor-pointer"
 							:events="{
-								click: (params: any) => toggleBand(BAND_ORDER[params.dataIndex]),
+								click: (params: any) =>
+									toggleBand(BAND_ORDER[params.dataIndex]),
 							}"
 							:options="{
 								color: progressColors,
@@ -277,8 +299,7 @@
 								<div>
 									{{
 										Math.ceil(
-											(progress.completion_count / course.data?.enrollments) *
-												100
+											(progress.completion_count / (enrolledCount || 1)) * 100,
 										)
 									}}%
 								</div>
@@ -293,7 +314,7 @@
 		v-if="showEnrollmentModal"
 		v-model="showEnrollmentModal"
 		:course="course"
-		:students="progressList"
+		:students="enrollmentRefresher"
 	/>
 	<StudentCourseProgress
 		v-if="showProgressModal"
@@ -307,7 +328,6 @@
 import {
 	Avatar,
 	Button,
-	createListResource,
 	createResource,
 	ECharts,
 	FormControl,
@@ -324,6 +344,7 @@ import {
 import type { SelectOptionValue } from 'frappe-ui'
 import Select from '@/components/Controls/Select.vue'
 import { computed, inject, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import type dayjsType from 'dayjs'
 import { Download, Plus, Star, Trash2 } from 'lucide-vue-next'
 import { createDialog } from '@/utils/dialogs'
@@ -336,12 +357,7 @@ import ProgressBar from '@/components/ProgressBar.vue'
 import StudentCourseProgress from '@/pages/Courses/StudentCourseProgress.vue'
 import ProgressRangeFilter from '@/components/ProgressRangeFilter.vue'
 import { useDebounceFn } from '@vueuse/core'
-import {
-	BAND_ORDER,
-	exportParams,
-	progressFilterConditions,
-	sortToOrderBy,
-} from '@/utils/progressRange'
+import { BAND_ORDER, exportParams } from '@/utils/progressRange'
 import type { ProgressBand, StudentSort } from '@/utils/progressRange'
 
 import type { CourseDetails, Resource } from '@/types/api'
@@ -350,37 +366,64 @@ const props = defineProps<{
 	course: Resource<CourseDetails | null>
 }>()
 
-const __ = ((window as any).__ as ((text: string) => string)) || ((text: string) => text)
+const __ =
+	((window as any).__ as (text: string) => string) || ((text: string) => text)
 const dayjs = inject<typeof dayjsType>('$dayjs')!
 const showEnrollmentModal = ref<boolean>(false)
 const searchFilter = ref<string | null>(null)
 const showProgressModal = ref<boolean>(false)
 const currentStudent = ref<Record<string, unknown> | null>(null)
 const theme = ref<'darkMode' | 'lightMode'>(
-	localStorage.getItem('theme') == 'dark' ? 'darkMode' : 'lightMode'
+	localStorage.getItem('theme') == 'dark' ? 'darkMode' : 'lightMode',
 )
 const progressBand = ref<ProgressBand>('')
 const minProgress = ref<number | string | null>(null)
 const maxProgress = ref<number | string | null>(null)
 const studentSort = ref<StudentSort>('creation_desc')
 
-const hasActiveFilters = computed(() => Boolean(searchFilter.value || progressBand.value))
+const route = useRoute()
+const router = useRouter()
 
-// Filters in list form so `progress` can carry both a lower and upper bound.
-const studentFilters = () => {
-	const filters: any[] = [['course', '=', props.course.data?.name]]
-	if (searchFilter.value) {
-		filters.push(['member_name', 'like', `%${searchFilter.value}%`])
-	}
-	filters.push(
-		...progressFilterConditions(
-			progressBand.value,
-			minProgress.value,
-			maxProgress.value
-		)
+// Batch filter: '' = all students, NO_BATCH = students in none of this
+// course's batches, otherwise an LMS Batch name. Kept in the URL (?batch=).
+const NO_BATCH = '__no_batch__'
+const selectedBatch = ref<string>(String(route.query.batch || ''))
+
+const courseBatches = createResource({
+	url: 'lms.lms.api.get_course_batches',
+	makeParams() {
+		return { course: props.course.data?.name }
+	},
+	auto: true,
+	onSuccess(data: any[]) {
+		// Drop a stale ?batch= that no longer belongs to this course
+		const valid = new Set([NO_BATCH, ...(data || []).map((b) => b.name)])
+		if (selectedBatch.value && !valid.has(selectedBatch.value)) {
+			selectedBatch.value = ''
+		}
+	},
+})
+
+const batchOptions = computed(() => [
+	{ label: __('All students'), value: '' },
+	...(courseBatches.data || []).map((b: any) => ({
+		label: `${b.title} (${b.students})`,
+		value: b.name,
+	})),
+	{ label: __('Not in any batch'), value: NO_BATCH },
+])
+
+const selectedBatchLabel = computed(() => {
+	if (selectedBatch.value === NO_BATCH) return __('students not in any batch')
+	const batch = (courseBatches.data || []).find(
+		(b: any) => b.name === selectedBatch.value,
 	)
-	return filters
-}
+	return batch?.title || selectedBatch.value
+})
+
+const hasActiveFilters = computed(() =>
+	Boolean(searchFilter.value || progressBand.value),
+)
 
 const toggleBand = (band: ProgressBand | undefined) => {
 	if (!band) return
@@ -392,41 +435,57 @@ const chartDetails = createResource({
 	makeParams() {
 		return {
 			course: props.course.data?.name,
+			batch: selectedBatch.value || undefined,
 		}
 	},
 	auto: true,
 })
 
-const progressList = createListResource({
-	doctype: 'LMS Enrollment',
-	filters: studentFilters(),
-	orderBy: sortToOrderBy(studentSort.value),
-	fields: [
-		'name',
-		'member',
-		'member_name',
-		'member_image',
-		'member_username',
-		'progress',
-		'creation',
-	],
-	pageLength: 100,
-	auto: true,
-	cache: ['courseProgress', props.course.data?.name],
-})
+// Students in the current filter (all students, or one batch's).
+const enrolledCount = computed<number>(() =>
+	chartDetails.data
+		? chartDetails.data.enrolled
+		: props.course.data?.enrollments || 0,
+)
 
-const studentCount = createResource({
-	url: 'frappe.client.get_count',
+const PAGE_SIZE = 100
+const pageLength = ref(PAGE_SIZE)
+
+const students = createResource({
+	url: 'lms.lms.api.get_course_students_progress',
 	makeParams() {
-		return { doctype: 'LMS Enrollment', filters: studentFilters() }
+		return {
+			course: props.course.data?.name,
+			batch: selectedBatch.value || undefined,
+			search: searchFilter.value || undefined,
+			progress_band: progressBand.value || undefined,
+			min_progress: minProgress.value ?? undefined,
+			max_progress: maxProgress.value ?? undefined,
+			sort: studentSort.value,
+			start: 0,
+			page_length: pageLength.value,
+		}
 	},
 	auto: true,
+	onError(err: any) {
+		toast.error(err?.messages?.[0] || __('Could not load students'))
+	},
 })
+
+const studentRows = computed<any[]>(() => students.data?.students || [])
+
+const loadMoreStudents = () => {
+	pageLength.value += PAGE_SIZE
+	students.reload()
+}
 
 const lessonProgress = createResource({
 	url: 'lms.lms.api.get_lesson_completion_stats',
-	params: {
-		course: props.course.data?.name,
+	makeParams() {
+		return {
+			course: props.course.data?.name,
+			batch: selectedBatch.value || undefined,
+		}
 	},
 	auto: true,
 })
@@ -434,8 +493,8 @@ const lessonProgress = createResource({
 const updateLessonProgress = (value: string) => {
 	if (value == 'completion_rate') {
 		lessonProgress.data?.sort((a: any, b: any) => {
-			const rateA = a.completion_count / (props.course.data?.enrollments || 1)
-			const rateB = b.completion_count / (props.course.data?.enrollments || 1)
+			const rateA = a.completion_count / (enrolledCount.value || 1)
+			const rateB = b.completion_count / (enrolledCount.value || 1)
 			return rateB - rateA
 		})
 	} else if (value == 'index') {
@@ -446,12 +505,8 @@ const updateLessonProgress = (value: string) => {
 }
 
 const applyStudentFilters = () => {
-	progressList.update({
-		filters: studentFilters(),
-		orderBy: sortToOrderBy(studentSort.value),
-	})
-	progressList.reload()
-	studentCount.reload()
+	pageLength.value = PAGE_SIZE
+	students.reload()
 }
 // Typing in search / min / max shouldn't fire a request per keystroke.
 const applyStudentFiltersDebounced = useDebounceFn(applyStudentFilters, 300)
@@ -459,17 +514,27 @@ const applyStudentFiltersDebounced = useDebounceFn(applyStudentFilters, 300)
 watch([searchFilter, minProgress, maxProgress], applyStudentFiltersDebounced)
 watch([progressBand, studentSort], applyStudentFilters)
 
-watch(
-	() => progressList.data,
-	(newData, oldData) => {
-		if (oldData) {
-			props.course.reload()
-			chartDetails.reload()
-			lessonProgress.reload()
-			studentCount.reload()
-		}
-	}
-)
+// Switching batch refreshes every widget and keeps the choice in the URL.
+watch(selectedBatch, (batch) => {
+	router.replace({
+		query: { ...route.query, batch: batch || undefined },
+		hash: route.hash,
+	})
+	pageLength.value = PAGE_SIZE
+	students.reload()
+	chartDetails.reload()
+	lessonProgress.reload()
+})
+
+// After enrolling or removing a student, refresh everything on the page.
+const refreshDashboard = () => {
+	props.course.reload()
+	students.reload()
+	chartDetails.reload()
+	lessonProgress.reload()
+	courseBatches.reload()
+}
+const enrollmentRefresher = { reload: refreshDashboard }
 
 const downloading = ref(false)
 
@@ -486,8 +551,11 @@ const downloadProgress = async () => {
 					min: minProgress.value,
 					max: maxProgress.value,
 					sort: studentSort.value,
-				}),
-			'course_progress.xlsx'
+				}) +
+				(selectedBatch.value
+					? '&batch=' + encodeURIComponent(selectedBatch.value)
+					: ''),
+			'course_progress.xlsx',
 		)
 	} catch (err) {
 		console.error(err)
@@ -544,7 +612,7 @@ const confirmRemove = (row: Record<string, any>) => {
 	createDialog({
 		title: __('Remove Learner from Course'),
 		message: __(
-			'Remove {0} from this course? This deletes their enrollment, progress, quiz submissions and certificates for this course only. Other courses and their account are kept.'
+			'Remove {0} from this course? This deletes their enrollment, progress, quiz submissions and certificates for this course only. Other courses and their account are kept.',
 		).format(row.member_name || row.member),
 		actions: [
 			{
@@ -557,11 +625,11 @@ const confirmRemove = (row: Record<string, any>) => {
 						member: row.member,
 					})
 						.then(() => {
-							progressList.reload()
+							refreshDashboard()
 							toast.success(
 								__('{0} removed from the course.').format(
-									row.member_name || row.member
-								)
+									row.member_name || row.member,
+								),
 							)
 						})
 						.catch((err: any) => {
