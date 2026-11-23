@@ -88,6 +88,7 @@ declare module 'vue' {
     MobileLayout: typeof import('./src/components/Layouts/MobileLayout.vue')['default']
     ModuleModal: typeof import('./src/components/Modals/ModuleModal.vue')['default']
     ModuleRow: typeof import('./src/components/ModuleRow.vue')['default']
+    MoveStudentModal: typeof import('./src/components/Modals/MoveStudentModal.vue')['default']
     MultiLink: typeof import('./src/components/Controls/MultiLink.vue')['default']
     MultiSelect: typeof import('./src/components/Controls/MultiSelect.vue')['default']
     NewMemberModal: typeof import('./src/components/Modals/NewMemberModal.vue')['default']

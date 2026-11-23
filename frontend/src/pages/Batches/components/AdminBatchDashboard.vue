@@ -153,6 +153,15 @@
 										>
 											<Button
 												variant="ghost"
+												:tooltip="__('Move to another batch')"
+												@click.stop="promptMoveStudent(row)"
+											>
+												<template #icon>
+													<ArrowRightLeft class="size-4" />
+												</template>
+											</Button>
+											<Button
+												variant="ghost"
 												:tooltip="__('Remove student from batch')"
 												@click.stop="promptRemoveStudent(row)"
 											>
@@ -231,6 +240,13 @@
 		:batch="batch"
 		:students="students"
 	/>
+	<MoveStudentModal
+		v-if="showMoveModal"
+		v-model="showMoveModal"
+		:batch="batch?.data?.name"
+		:student="studentToMove"
+		@moved="onStudentMoved"
+	/>
 	<BatchMessageModal
 		v-if="showMessageModal"
 		v-model="showMessageModal"
@@ -289,10 +305,11 @@ import { computed, inject, ref, watch } from 'vue'
 import type dayjsType from 'dayjs'
 import { formatAmount } from '@/utils'
 import { downloadFile } from '@/utils/downloadFile'
-import { Download, Mail, Plus, Trash2 } from 'lucide-vue-next'
+import { ArrowRightLeft, Download, Mail, Plus, Trash2 } from 'lucide-vue-next'
 import BatchFeedback from '@/pages/Batches/components/BatchFeedback.vue'
 import BatchStudentProgress from '@/pages/Batches/components/BatchStudentProgress.vue'
 import NumberChartGraph from '@/components/NumberChartGraph.vue'
+import MoveStudentModal from '@/components/Modals/MoveStudentModal.vue'
 import BatchMessageModal from '@/components/Modals/BatchMessageModal.vue'
 import StudentModal from '@/components/Modals/StudentModal.vue'
 import ProgressBar from '@/components/ProgressBar.vue'
@@ -463,12 +480,12 @@ const studentColumns = computed(() => {
 		{
 			label: __('Name'),
 			key: 'member_name',
-			width: '40%',
+			width: '28%',
 		},
 		{
 			label: __('Progress'),
 			key: 'progress',
-			width: '30%',
+			width: '26%',
 		},
 		{
 			label: __('Enrolled On'),
@@ -479,13 +496,26 @@ const studentColumns = computed(() => {
 			label: '',
 			key: 'remove',
 			align: 'right',
-			width: '60px',
+			width: '76px',
 		},
 	]
 })
 
 const showRemoveDialog = ref(false)
 const studentToRemove = ref<any>(null)
+
+const showMoveModal = ref(false)
+const studentToMove = ref<any>(null)
+
+function promptMoveStudent(row: any) {
+	studentToMove.value = row
+	showMoveModal.value = true
+}
+
+function onStudentMoved() {
+	selectedMembers.value = new Set()
+	loadStudents()
+}
 
 function promptRemoveStudent(row: any) {
 	studentToRemove.value = row
