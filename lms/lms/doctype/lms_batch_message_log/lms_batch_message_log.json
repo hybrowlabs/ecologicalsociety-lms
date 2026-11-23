@@ -1,0 +1,33 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-11-23 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": ["batch", "sender", "recipient", "recipient_name", "column_break_1", "subject", "sent_email", "sent_notification", "message"],
+ "fields": [
+  {"fieldname": "batch", "fieldtype": "Link", "in_list_view": 1, "in_standard_filter": 1, "label": "Batch", "options": "LMS Batch", "reqd": 1},
+  {"fieldname": "sender", "fieldtype": "Link", "in_list_view": 1, "label": "Sender", "options": "User", "reqd": 1},
+  {"fieldname": "recipient", "fieldtype": "Link", "in_list_view": 1, "in_standard_filter": 1, "label": "Recipient", "options": "User", "reqd": 1},
+  {"fetch_from": "recipient.full_name", "fieldname": "recipient_name", "fieldtype": "Data", "label": "Recipient Name", "read_only": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "subject", "fieldtype": "Data", "in_list_view": 1, "label": "Subject"},
+  {"default": "0", "fieldname": "sent_email", "fieldtype": "Check", "label": "Email Sent"},
+  {"default": "0", "fieldname": "sent_notification", "fieldtype": "Check", "label": "Notification Sent"},
+  {"fieldname": "message", "fieldtype": "Text Editor", "label": "Message"}
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-23 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "LMS",
+ "name": "LMS Batch Message Log",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"read": 1, "report": 1, "role": "Moderator"}
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

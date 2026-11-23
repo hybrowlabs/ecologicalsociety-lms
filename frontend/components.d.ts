@@ -21,6 +21,7 @@ declare module 'vue' {
     BadgeForm: typeof import('./src/components/Settings/BadgeForm.vue')['default']
     Badges: typeof import('./src/components/Settings/Badges.vue')['default']
     BatchCourseModal: typeof import('./src/components/Modals/BatchCourseModal.vue')['default']
+    BatchMessageModal: typeof import('./src/components/Modals/BatchMessageModal.vue')['default']
     BrandSettings: typeof import('./src/components/Settings/BrandSettings.vue')['default']
     Categories: typeof import('./src/components/Settings/Categories.vue')['default']
     CertificationLinks: typeof import('./src/components/CertificationLinks.vue')['default']

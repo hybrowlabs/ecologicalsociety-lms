@@ -11,6 +11,7 @@ from xml.dom.minidom import parseString
 
 import frappe
 from frappe import _
+from frappe.desk.doctype.notification_log.notification_log import make_notification_logs
 from frappe.integrations.frappe_providers.frappecloud_billing import (
 	current_site_info,
 	is_fc_site,
@@ -2373,6 +2374,143 @@ def get_batch_students_progress(
 	start = max(cint(start), 0)
 	page_length = min(max(cint(page_length), 1), 500)
 	return {"students": rows[start : start + page_length], "total": len(rows)}
+
+
+LAGGING_PROGRESS_THRESHOLD = 30
+MAX_BATCH_MESSAGE_RECIPIENTS = 200
+
+
+@frappe.whitelist()
+def get_lagging_students(batch: str, threshold: float | None = None):
+	"""Students of a batch whose batch progress is below the threshold (default 30%)."""
+	if not can_modify_batch(batch):
+		frappe.throw(_("You are not authorized to view the progress of this batch."), frappe.PermissionError)
+
+	threshold = flt(threshold) if threshold not in (None, "") else LAGGING_PROGRESS_THRESHOLD
+	students = get_filtered_batch_students(batch, sort="progress_asc")
+	return [s for s in students if flt(s.progress) < threshold]
+
+
+@frappe.whitelist()
+def send_batch_student_message(
+	batch: str,
+	students: list | str,
+	subject: str,
+	message: str,
+	send_email: bool = True,
+	send_notification: bool = True,
+):
+	"""Send an individual email / in-app notification to selected students of a batch.
+
+	Not an announcement: it is not stored as a Communication on the batch and each
+	student only sees their own copy. `{{ student_name }}`, `{{ batch }}` and
+	`{{ progress }}` placeholders in subject/message are filled in per student."""
+	if not can_modify_batch(batch):
+		frappe.throw(_("You are not authorized to message students of this batch."), frappe.PermissionError)
+
+	students = frappe.parse_json(students) if isinstance(students, str) else students
+	students = list(dict.fromkeys(students or []))
+	send_email, send_notification = cint(send_email), cint(send_notification)
+
+	if not students:
+		frappe.throw(_("Select at least one student."))
+	if len(students) > MAX_BATCH_MESSAGE_RECIPIENTS:
+		frappe.throw(_("You can message at most {0} students at a time.").format(MAX_BATCH_MESSAGE_RECIPIENTS))
+	if not (subject or "").strip() or not (message or "").strip():
+		frappe.throw(_("Subject and message are required."))
+	if not (send_email or send_notification):
+		frappe.throw(_("Choose at least one of email or notification."))
+
+	enrolled = {
+		s.member: s
+		for s in get_filtered_batch_students(batch)
+		if s.member in students
+	}
+	invalid = [s for s in students if s not in enrolled]
+	if invalid:
+		frappe.throw(_("These users are not enrolled in this batch: {0}").format(", ".join(invalid)))
+
+	batch_title = frappe.db.get_value("LMS Batch", batch, "title")
+	sender_name = frappe.db.get_value("User", frappe.session.user, "full_name")
+
+	batch_courses = frappe.get_all("Batch Course", {"parent": batch}, ["course", "title"], order_by="idx")
+	course_progress = {
+		(row.member, row.course): flt(row.progress)
+		for row in frappe.get_all(
+			"LMS Enrollment",
+			{"course": ["in", [c.course for c in batch_courses]], "member": ["in", students]},
+			["member", "course", "progress"],
+		)
+	}
+
+	def fill(text, student):
+		course_titles = [c.title or c.course for c in batch_courses]
+		pending = [
+			c.title or c.course
+			for c in batch_courses
+			if course_progress.get((student.member, c.course), 0) < 100
+		]
+		values = {
+			"student_name": student.member_name or student.member,
+			"batch": batch_title,
+			"progress": f"{flt(student.progress):g}%",
+			"courses": ", ".join(course_titles),
+			"pending_courses": ", ".join(pending),
+		}
+		for key, value in values.items():
+			text = re.sub(r"\{\{\s*" + key + r"\s*\}\}", str(value), text)
+		return text
+
+	for member in students:
+		student = enrolled[member]
+		student_subject = fill(subject, student)
+		student_message = fill(message, student)
+
+		if send_email:
+			frappe.sendmail(
+				recipients=[member],
+				subject=student_subject,
+				template="batch_student_message",
+				args={
+					"message": student_message,
+					"sender_name": sender_name,
+					"batch_title": batch_title,
+				},
+				reply_to=frappe.session.user,
+				header=[_(batch_title), "green"],
+				retry=3,
+			)
+
+		if send_notification:
+			make_notification_logs(
+				frappe._dict(
+					{
+						"subject": student_subject,
+						"email_content": student_message,
+						"document_type": "LMS Batch",
+						"document_name": batch,
+						"from_user": frappe.session.user,
+						"type": "Alert",
+						"link": get_lms_route(f"batches/{batch}"),
+					}
+				),
+				[member],
+			)
+
+		frappe.get_doc(
+			{
+				"doctype": "LMS Batch Message Log",
+				"batch": batch,
+				"sender": frappe.session.user,
+				"recipient": member,
+				"subject": student_subject,
+				"message": student_message,
+				"sent_email": send_email,
+				"sent_notification": send_notification,
+			}
+		).insert(ignore_permissions=True)
+
+	return {"sent": len(students)}
 
 
 def get_progress_distribution(progressList: list):

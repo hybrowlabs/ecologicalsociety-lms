@@ -36,6 +36,20 @@
 							:placeholder="__('Search by name')"
 							type="text"
 						/>
+						<Button :loading="loadingLagging" @click="selectLagging">
+							{{ __('Select lagging') }}
+						</Button>
+						<Button
+							variant="solid"
+							:disabled="!selectedMembers.size"
+							@click="showMessageModal = true"
+						>
+							<template #prefix>
+								<Mail class="size-4 stroke-1.5" />
+							</template>
+							{{ __('Message') }}
+							<span v-if="selectedMembers.size">({{ selectedMembers.size }})</span>
+						</Button>
 						<Button :loading="downloading" @click="downloadProgress">
 							<template #prefix>
 								<Download class="size-4 stroke-1.5" />
@@ -82,6 +96,15 @@
 								v-for="item in studentColumns"
 								:key="item.key"
 							>
+								<template v-if="item.key == 'select'" #default>
+									<input
+										type="checkbox"
+										class="cursor-pointer"
+										:checked="allLoadedSelected"
+										@click.stop
+										@change="toggleAllLoaded"
+									/>
+								</template>
 							</ListHeaderItem>
 						</ListHeader>
 						<ListRows v-for="row in studentRows" class="max-h-[500px]">
@@ -107,7 +130,15 @@
 												class="!mx-0 !me-4"
 											/>
 										</template>
-										<div v-if="column.key == 'creation'">
+										<div v-if="column.key == 'select'" @click.stop>
+											<input
+												type="checkbox"
+												class="cursor-pointer"
+												:checked="selectedMembers.has(row.member)"
+												@change="toggleMember(row.member)"
+											/>
+										</div>
+										<div v-else-if="column.key == 'creation'">
 											{{ dayjs(row[column.key]).format('DD MMM YYYY') }}
 										</div>
 										<div
@@ -200,6 +231,13 @@
 		:batch="batch"
 		:students="students"
 	/>
+	<BatchMessageModal
+		v-if="showMessageModal"
+		v-model="showMessageModal"
+		:batch="batch?.data?.name"
+		:recipients="selectedRecipients"
+		@sent="selectedMembers = new Set()"
+	/>
 	<BatchStudentProgress
 		v-if="showProgressModal"
 		v-model="showProgressModal"
@@ -251,10 +289,11 @@ import { computed, inject, ref, watch } from 'vue'
 import type dayjsType from 'dayjs'
 import { formatAmount } from '@/utils'
 import { downloadFile } from '@/utils/downloadFile'
-import { Download, Plus, Trash2 } from 'lucide-vue-next'
+import { Download, Mail, Plus, Trash2 } from 'lucide-vue-next'
 import BatchFeedback from '@/pages/Batches/components/BatchFeedback.vue'
 import BatchStudentProgress from '@/pages/Batches/components/BatchStudentProgress.vue'
 import NumberChartGraph from '@/components/NumberChartGraph.vue'
+import BatchMessageModal from '@/components/Modals/BatchMessageModal.vue'
 import StudentModal from '@/components/Modals/StudentModal.vue'
 import ProgressBar from '@/components/ProgressBar.vue'
 import ProgressRangeFilter from '@/components/ProgressRangeFilter.vue'
@@ -362,8 +401,65 @@ const loadStudentsDebounced = useDebounceFn(() => loadStudents(), 300)
 watch([searchFilter, minProgress, maxProgress], loadStudentsDebounced)
 watch([progressBand, studentSort], () => loadStudents())
 
+const showMessageModal = ref(false)
+const selectedMembers = ref<Set<string>>(new Set())
+const knownStudents = ref<Record<string, any>>({})
+const loadingLagging = ref(false)
+
+const selectedRecipients = computed(() =>
+	[...selectedMembers.value].map(
+		(member) => knownStudents.value[member] || { member }
+	)
+)
+
+const allLoadedSelected = computed(
+	() =>
+		studentRows.value.length > 0 &&
+		studentRows.value.every((r) => selectedMembers.value.has(r.member))
+)
+
+const toggleMember = (member: string) => {
+	const next = new Set(selectedMembers.value)
+	next.has(member) ? next.delete(member) : next.add(member)
+	selectedMembers.value = next
+}
+
+const toggleAllLoaded = () => {
+	const next = new Set(selectedMembers.value)
+	const select = !allLoadedSelected.value
+	studentRows.value.forEach((r) => (select ? next.add(r.member) : next.delete(r.member)))
+	selectedMembers.value = next
+}
+
+watch(studentRows, (rows) => {
+	rows.forEach((r) => (knownStudents.value[r.member] = r))
+})
+
+// Selects every student whose batch progress is below the lagging threshold,
+// across all pages, not only the rows loaded so far.
+const selectLagging = async () => {
+	loadingLagging.value = true
+	try {
+		const lagging = await call('lms.lms.api.get_lagging_students', {
+			batch: props.batch?.data?.name,
+		})
+		lagging.forEach((s: any) => (knownStudents.value[s.member] = s))
+		selectedMembers.value = new Set(lagging.map((s: any) => s.member))
+		if (!lagging.length) toast.info(__('No students are lagging behind.'))
+	} catch (err: any) {
+		toast.error(err?.messages?.[0] || __('Could not load lagging students'))
+	} finally {
+		loadingLagging.value = false
+	}
+}
+
 const studentColumns = computed(() => {
 	return [
+		{
+			label: '',
+			key: 'select',
+			width: '40px',
+		},
 		{
 			label: __('Name'),
 			key: 'member_name',
