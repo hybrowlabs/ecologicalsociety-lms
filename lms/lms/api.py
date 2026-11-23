@@ -2431,7 +2431,7 @@ def send_batch_student_message(
 		frappe.throw(_("These users are not enrolled in this batch: {0}").format(", ".join(invalid)))
 
 	batch_title = frappe.db.get_value("LMS Batch", batch, "title")
-	sender_name = frappe.db.get_value("User", frappe.session.user, "full_name")
+	sender_name, sender_email = frappe.db.get_value("User", frappe.session.user, ["full_name", "email"])
 
 	batch_courses = frappe.get_all("Batch Course", {"parent": batch}, ["course", "title"], order_by="idx")
 	course_progress = {
@@ -2466,8 +2466,9 @@ def send_batch_student_message(
 		student_subject = fill(subject, student)
 		student_message = fill(message, student)
 
+		emailed = 0
 		if send_email:
-			frappe.sendmail(
+			queued = frappe.sendmail(
 				recipients=[member],
 				subject=student_subject,
 				template="batch_student_message",
@@ -2476,10 +2477,11 @@ def send_batch_student_message(
 					"sender_name": sender_name,
 					"batch_title": batch_title,
 				},
-				reply_to=frappe.session.user,
+				reply_to=sender_email,
 				header=[_(batch_title), "green"],
 				retry=3,
 			)
+			emailed = 1 if queued else 0
 
 		if send_notification:
 			make_notification_logs(
@@ -2505,12 +2507,55 @@ def send_batch_student_message(
 				"recipient": member,
 				"subject": student_subject,
 				"message": student_message,
-				"sent_email": send_email,
+				"sent_email": emailed,
 				"sent_notification": send_notification,
 			}
 		).insert(ignore_permissions=True)
 
 	return {"sent": len(students)}
+
+
+@frappe.whitelist()
+def get_auto_mail_recipients(rule: str):
+	"""Who a saved auto mail rule matches right now: total count and a short sample."""
+	frappe.only_for("System Manager")
+	from lms.lms.auto_mail import get_matching_students
+
+	doc = frappe.get_doc("LMS Auto Mail Rule", rule)
+	rows = get_matching_students(doc)
+	return {
+		"count": len(rows),
+		"sample": [
+			{"member": r.member, "member_name": r.member_name, "course": r.course_title, "progress": r.progress}
+			for r in rows[:10]
+		],
+	}
+
+
+@frappe.whitelist()
+def send_auto_mail_test(rule: str):
+	"""Send the rule's drafted mail to the current user, using sample student details."""
+	frappe.only_for("System Manager")
+	from lms.lms.auto_mail import has_outgoing_email, render_mail
+
+	if not has_outgoing_email():
+		frappe.throw(_("Please setup a default outgoing Email Account first."))
+
+	doc = frappe.get_doc("LMS Auto Mail Rule", rule)
+	sample = frappe._dict(
+		member=frappe.session.user,
+		member_name=frappe.db.get_value("User", frappe.session.user, "full_name"),
+		course_title=frappe.db.get_value("LMS Course", doc.course, "title") if doc.course else _("Sample Course"),
+		progress=doc.progress_percent,
+	)
+	mail = render_mail(doc, sample)
+	frappe.sendmail(
+		recipients=[frappe.session.user],
+		subject=_("[Test] {0}").format(mail.get("subject")),
+		content=mail.get("message"),
+		header=[_("Progress Reminder"), "orange"],
+	)
+	return {"sent_to": frappe.session.user}
 
 
 def get_progress_distribution(progressList: list):

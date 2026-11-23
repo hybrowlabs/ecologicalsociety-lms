@@ -37,7 +37,6 @@
 		"enforce_assignment_completion",
 		"column_break_cprg",
 		"lesson_dwell_time",
-		"send_low_progress_reminder",
 		"signup_settings_tab",
 		"signup_settings_section",
 		"column_break_9",
@@ -525,13 +524,6 @@
 			"fieldtype": "Int",
 			"label": "Lesson Dwell Time (seconds)",
 			"non_negative": 1
-		},
-		{
-			"default": "0",
-			"description": "On the last day of every month, email students whose course completion is below 30%.",
-			"fieldname": "send_low_progress_reminder",
-			"fieldtype": "Check",
-			"label": "Send Month-End Reminder for Low Course Progress"
 		},
 		{
 			"fieldname": "column_break_cprg",

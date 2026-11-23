@@ -130,3 +130,4 @@ lms.patches.v2_0.set_course_progress_defaults #02-06-2026
 lms.patches.v2_0.set_existing_chapters_published #07-08-2026
 lms.patches.v2_0.migrate_chapter_instructors #01-09-2026
 lms.patches.v2_0.set_assignment_last_uploaded_on #17-11-2026
+lms.patches.v2_0.migrate_low_progress_reminder_to_rule #23-11-2026

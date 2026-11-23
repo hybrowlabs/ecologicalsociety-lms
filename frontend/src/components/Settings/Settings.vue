@@ -59,7 +59,7 @@
 </template>
 <script setup>
 import { Dialog, createDocumentResource } from 'frappe-ui'
-import { computed, markRaw, ref, watch } from 'vue'
+import { computed, inject, markRaw, ref, watch } from 'vue'
 import { useSettings } from '@/stores/settings'
 import SettingDetails from '@/components/Settings/SettingDetails.vue'
 import SidebarLink from '@/components/Sidebar/SidebarLink.vue'
@@ -73,8 +73,10 @@ import Transactions from '@/components/Settings/Transactions/Transactions.vue'
 import ZoomSettings from '@/components/Settings/ZoomSettings.vue'
 import GoogleMeetSettings from '@/components/Settings/GoogleMeetSettings.vue'
 import Badges from '@/components/Settings/Badges.vue'
+import AutoMailRules from '@/components/Settings/AutoMailRules.vue'
 
 const show = defineModel()
+const user = inject('$user')
 const doctype = ref('LMS Settings')
 const activeTab = ref(null)
 const settingsStore = useSettings()
@@ -330,22 +332,6 @@ const tabsStructure = computed(() => {
 								},
 							],
 						},
-						{
-							label: 'Reminders',
-							columns: [
-								{
-									fields: [
-										{
-											label: 'Send month-end reminder for low course progress',
-											name: 'send_low_progress_reminder',
-											type: 'checkbox',
-											description:
-												'On the last day of every month, email students whose course completion is below 30%, encouraging them to catch up.',
-										},
-									],
-								},
-							],
-						},
 					],
 				},
 				{
@@ -360,6 +346,14 @@ const tabsStructure = computed(() => {
 					description: 'Double click to edit the category',
 					icon: 'Network',
 					template: markRaw(Categories),
+				},
+				{
+					label: 'Auto Emails',
+					description:
+						'Email students automatically when their progress is above or below a percentage, on a chosen day of every month',
+					icon: 'MailCheck',
+					template: markRaw(AutoMailRules),
+					condition: () => user?.data?.is_system_manager,
 				},
 				{
 					label: 'Email Templates',
