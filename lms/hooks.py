@@ -123,6 +123,7 @@ doc_events = {
 		"validate": "lms.lms.utils.validate_discussion_reply",
 	},
 	"Notification Log": {"on_change": "lms.lms.utils.publish_notifications"},
+	"Communication": {"after_insert": "lms.lms.mention_mail.handle_incoming_reply"},
 	"User": {
 		"validate": "lms.lms.user.validate_username_duplicates",
 		"before_insert": "lms.lms.user.add_lms_student_role",

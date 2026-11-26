@@ -554,10 +554,12 @@ def notify_mentions_on_portal(doc: Document, topic: dict):
 
 
 def notify_mentions_via_email(doc: Document, topic: dict):
+	from lms.lms.mention_mail import get_reply_to_address
+
 	outgoing_email_account = frappe.get_cached_value(
 		"Email Account", {"default_outgoing": 1, "enable_outgoing": 1}, "name"
 	)
-	if not outgoing_email_account or not frappe.conf.get("mail_login"):
+	if not outgoing_email_account and not frappe.conf.get("mail_login"):
 		return
 
 	mentions = extract_mentions(doc.reply)
@@ -565,37 +567,38 @@ def notify_mentions_via_email(doc: Document, topic: dict):
 		return
 
 	sender_fullname = get_fullname(doc.owner)
-	recipients = [
-		frappe.db.get_value(
-			"User",
-			{"enabled": 1, "name": name},
-			"email",
-		)
-		for name in mentions
-	]
 	subject = _("{0} mentioned you in a comment").format(sender_fullname)
 	template = "mention_template"
 
+	link = None
+	context_title = topic.title
 	if topic.reference_doctype == "LMS Batch":
-		link = f"/batches/{topic.reference_docname}#discussions"
-	if topic.reference_doctype == "Course Lesson":
+		link = get_lms_route(f"batches/{topic.reference_docname}#discussions")
+		context_title = frappe.db.get_value("LMS Batch", topic.reference_docname, "title")
+	elif topic.reference_doctype == "Course Lesson":
 		course = frappe.db.get_value("Course Lesson", topic.reference_docname, "course")
-		lesson_index = get_lesson_index(topic.reference_docname)
-		link = get_lesson_url(course, lesson_index)
+		link = get_lesson_url(course, get_lesson_index(topic.reference_docname))
 
-	args = {
-		"sender": sender_fullname,
-		"content": doc.reply,
-		"link": link,
-	}
+	for name in mentions:
+		recipient = frappe.db.get_value("User", {"enabled": 1, "name": name}, "email")
+		if not recipient or name == doc.owner:
+			continue
 
-	for recipient in recipients:
+		reply_to = get_reply_to_address(doc.topic, name)
+		args = {
+			"sender": sender_fullname,
+			"content": doc.reply,
+			"link": link,
+			"title": context_title,
+			"can_reply_by_email": bool(reply_to),
+		}
 		frappe.sendmail(
 			recipients=recipient,
 			subject=subject,
 			template=template,
 			args=args,
 			header=[subject, "green"],
+			reply_to=reply_to,
 			retry=3,
 		)
 
@@ -2628,8 +2631,12 @@ def persona_captured():
 
 
 def validate_discussion_reply(doc: Document, method: str):
+	validate_discussion_reply_access(doc.topic)
+
+
+def validate_discussion_reply_access(topic_name: str):
 	topic = frappe.db.get_value(
-		"Discussion Topic", doc.topic, ["reference_doctype", "reference_docname"], as_dict=True
+		"Discussion Topic", topic_name, ["reference_doctype", "reference_docname"], as_dict=True
 	)
 
 	if topic.reference_doctype == "Course Lesson":

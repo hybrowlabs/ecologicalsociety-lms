@@ -1,11 +1,16 @@
 <p>
-    {{ _("{0} mentioned you in a comment in your batch.").format(sender) }}
+    {{ _("{0} mentioned you in a comment in {1}.").format(sender, title or _("a discussion")) }}
 </p>
 <p>
     <blockquote>
         {{ content | markdown }}
     </blockquote>
 </p>
+{% if can_reply_by_email %}
+<p>
+    {{ _("Reply to this email to answer. Your reply will be posted to the discussion.") }}
+</p>
+{% endif %}
 <div class="more-info">
 	<a href="{{ link }}">{{ _("Check Discussion") }}</a>
 </div>
